@@ -1,20 +1,21 @@
 /*******************************************************************************
  * ---------------------------
- * Log Script für ioBroker zum Aufbereiten des Logs für Visualisierungen (vis)
+ * Log Script fÃ¼r ioBroker zum Aufbereiten des Logs fÃ¼r Visualisierungen (vis)
  * ---------------------------
  *
- * Das Script liest regelmäßig (einstellbar, z.B. alle 2 Minuten) die tägliche
+ * Das Script liest regelmÃ¤ÃŸig (einstellbar, z.B. alle 2 Minuten) die tÃ¤gliche
  * Log-Datei des ioBrokers aus und setzt das Ergebnis in Datenpunkte, aufgeteilt
  * je nach Einstellung unten.
- * Neue Log-Einträge werden in den Datenpunkten regelmäßig ergänzt.
- * Es stehen auch JSON-Datenpunkte zur Verfügung, mit diesen kann im vis eine
- * Tabelle ausgegeben werden (z.B. über das Widget 'basic - Tabelle')-
+ * Neue Log-EintrÃ¤ge werden in den Datenpunkten regelmÃ¤ÃŸig ergÃ¤nzt.
+ * Es stehen auch JSON-Datenpunkte zur VerfÃ¼gung, mit diesen kann im vis eine
+ * Tabelle ausgegeben werden (z.B. Ã¼ber das Widget 'basic - Tabelle')-
  *
  * Aktuelle Version unter: https://github.com/Mic-M/iobroker.logfile-script
  *
  * Siehe auch: https://forum.iobroker.net/viewtopic.php?f=21&t=15514
  *
  * Change Log:
+ *  0.4  Mic - Bug fix: improved validation of log line consistency
  *  0.3  Mic - Added filtering, blacklist, and several fixes
  *  0.2  Mic - Bug fix: corrected wrong function name
  *  0.1  Mic - Initial release
@@ -24,9 +25,7 @@
  *    23:58 und 0:00, da ab 0:00 Uhr ein neues Logfile auf dem Server erstellt
  *    wird. Ab 0:00 + x Minuten (lt. Schedule) + Puffer ist also auch noch das
  *    Logfile vom Vortag mit auszulesen.
- *  - Globales ausfiltern, also komplette Entfernung unerwünschter Log-Einträge
- *    über alle States hinweg.
- *******************************************************************************/
+  *******************************************************************************/
 
 /*******************************************************************************
  * Konfiguration: Pfade
@@ -38,108 +37,108 @@ const L_STATE_PATH = 'javascript.'+ instance + '.' + 'mylog';
 // Der Standard-Pfad ist '/opt/iobroker/log/'.
 const L_LOG_PATH = '/opt/iobroker/log/';
 
-// Leer lassen! Nur setzen, falls ein eigener Filename für das Logfile verwendet wird
+// Leer lassen! Nur setzen, falls ein eigener Filename fÃ¼r das Logfile verwendet wird
 const L_LOG_FILENAME = '';
 
 /*******************************************************************************
- * Konfiguration: Alle Logeinträge - Global
+ * Konfiguration: Alle LogeintrÃ¤ge - Global
  ******************************************************************************/
-// Zahl: Maximale Anzahl der letzten Logeinträge in den Datenpunkten. Alle älteren werden entfernt.
+// Zahl: Maximale Anzahl der letzten LogeintrÃ¤ge in den Datenpunkten. Alle Ã¤lteren werden entfernt.
 // Bitte nicht allzu viele behalten, denn das kostet Performance.
 const L_NO_OF_ENTRIES = 100;
 
-// Sortierung der Logeinträge: D für descending (absteigend, also neuester oben), oder A für ascending (aufsteigend, also ältester oben)
-// Empfohlen ist "D", damit neueste Einträge immer oben stehen.
+// Sortierung der LogeintrÃ¤ge: D fÃ¼r descending (absteigend, also neuester oben), oder A fÃ¼r ascending (aufsteigend, also Ã¤ltester oben)
+// Empfohlen ist "D", damit neueste EintrÃ¤ge immer oben stehen.
 const L_SORT_ORDER = 'D';
 
-// Wie oft sollen die Log-Datenpunkte aktualisiert werden? Benutze den "Cron"-Button oben rechts für komfortable Einstellung
+// Wie oft sollen die Log-Datenpunkte aktualisiert werden? Benutze den "Cron"-Button oben rechts fÃ¼r komfortable Einstellung
 // Bitte nicht jede Sekunde laufen lassen, alle paar Minuten sollte locker reichen.
 const L_SCHEDULE  = "*/2 * * * *"; // alle 2 Minuten
 
 // Blacklist - falls einer dieser Begriffe enthalten ist, dann wird der Log-Eintrag
-// nicht aufgenommen. Praktisch, um penetrante Logeinträge zu eliminieren.
-// Mindestens 3 Zeichen erforderlich, sonst wird es nicht berücksichtigt.
-// Datenpunkt-Inhalte bei Änderung ggf. vorher löschen, diese werden nicht nachträglich gefiltert.
+// nicht aufgenommen. Praktisch, um penetrante LogeintrÃ¤ge zu eliminieren.
+// Mindestens 3 Zeichen erforderlich, sonst wird es nicht berÃ¼cksichtigt.
+// Datenpunkt-Inhalte bei Ã„nderung ggf. vorher lÃ¶schen, diese werden nicht nachtrÃ¤glich gefiltert.
 const L_BLACKLIST_GLOBAL = ['', '', '', ''];
 
-// Entferne zusätzliche Leerzeichen, Tab-Stops, Zeilenumbrüche
-// Wird empfohlen. Falls nicht gewünscht, auf false setzen.
+// Entferne zusÃ¤tzliche Leerzeichen, Tab-Stops, ZeilenumbrÃ¼che
+// Wird empfohlen. Falls nicht gewÃ¼nscht, auf false setzen.
 const L_CLEAN_LOG = true;
 
 /*******************************************************************************
- * Konfiguration: JSON-Log (für Ausgabe z.B. im vis)
+ * Konfiguration: JSON-Log (fÃ¼r Ausgabe z.B. im vis)
  ******************************************************************************/
-// Datumsformat für JSON Log. Z.B. volles z.B. Datum mit 'yyyy-mm-dd HH:MM:SS' oder nur Uhrzeit mit "HH:MM:SS". Die Platzhalter yyyy, mm, dd usw.
-// werden jeweils ersetzt. yyyy = Jahr, mm = Monat, dd = Tag, HH = Stunde, MM = Minute, SS = Sekunde. Auf Groß- und Kleinschreibung achten!
-// Die Verbinder (-, :, Leerzeichen, etc.) können im Prinzip frei gewählt werden.
-// Beispiele: 'HH:MM:SS' für 19:37:25, 'HH:MM' für 19:37, 'mm.dd HH:MM' für '25.07. 19:37'
+// Datumsformat fÃ¼r JSON Log. Z.B. volles z.B. Datum mit 'yyyy-mm-dd HH:MM:SS' oder nur Uhrzeit mit "HH:MM:SS". Die Platzhalter yyyy, mm, dd usw.
+// werden jeweils ersetzt. yyyy = Jahr, mm = Monat, dd = Tag, HH = Stunde, MM = Minute, SS = Sekunde. Auf GroÃŸ- und Kleinschreibung achten!
+// Die Verbinder (-, :, Leerzeichen, etc.) kÃ¶nnen im Prinzip frei gewÃ¤hlt werden.
+// Beispiele: 'HH:MM:SS' fÃ¼r 19:37:25, 'HH:MM' fÃ¼r 19:37, 'mm.dd HH:MM' fÃ¼r '25.07. 19:37'
 const L_DATE_FORMAT = 'HH:MM:SS';
 
 // Max. Anzahl Zeichen der Log-Meldung im JSON Log.
 const L_LEN = 100;
 
-// Zahl: Maximale Anzahl der letzten Logeinträge in den Datenpunkten. Alle älteren werden entfernt.
-// Speziell für das JSON-Log zur Visualisierung, hier brauchen wir ggf. weniger als für L_NO_OF_ENTRIES gesamt.
+// Zahl: Maximale Anzahl der letzten LogeintrÃ¤ge in den Datenpunkten. Alle Ã¤lteren werden entfernt.
+// Speziell fÃ¼r das JSON-Log zur Visualisierung, hier brauchen wir ggf. weniger als fÃ¼r L_NO_OF_ENTRIES gesamt.
 const L_NO_OF_ENTRIES_JSON = 60;
 
 
 /*******************************************************************************
  * Konfiguration: Datenpunkte und Filter
  ******************************************************************************/
-// Dies ist das Herzstück dieses Scripts: hier werden die Datenpunkte
-// konfiguriert, die erstellt werden sollen. Hierbei können wir entsprechend
-// Filter setzen, also Wörter/Begriffe, die in Logeinträgen enthalten sein
+// Dies ist das HerzstÃ¼ck dieses Scripts: hier werden die Datenpunkte
+// konfiguriert, die erstellt werden sollen. Hierbei kÃ¶nnen wir entsprechend
+// Filter setzen, also WÃ¶rter/Begriffe, die in LogeintrÃ¤gen enthalten sein
 // sollen und in den Datenpunkten aufgenommen werden.
 //
 // id:          Hier Begriff ohne Leerzeichen, z.B. "error", "sonoff", etc.
 //             Die ID wird dann Teil der ID der Datenpunkte.
-// filter_all: ALLE Begriffe müssen in der Logzeile enthalten sein. Ist einer
+// filter_all: ALLE Begriffe mÃ¼ssen in der Logzeile enthalten sein. Ist einer
 //             der Begriffe nicht enthalten, dann wird der komplette Logeintrag
-//             auch nicht übernommen.
-//             Leeres Array eingeben [] falls hier filtern nicht gewünscht.
+//             auch nicht Ã¼bernommen.
+//             Leeres Array eingeben [] falls hier filtern nicht gewÃ¼nscht.
 // filter_any: Mindestens einer der gelisteten Begriffe muss enthalten sein.
-//             Leeres Array eingeben [] falls hier filtern nicht gewünscht.
+//             Leeres Array eingeben [] falls hier filtern nicht gewÃ¼nscht.
 // blacklist: Wenn einer dieser Begriffe im Logeintrag enthalten ist,
-//                   so wird der komplette Logeintrag nicht übernommen, egal was
+//                   so wird der komplette Logeintrag nicht Ã¼bernommen, egal was
 //                   vorher in filter_all oder filter_any definiert ist.
 //                   Mindestens 3 Zeichen erforderlich, sonst wird es nicht
-//                   berücksichtigt.
+//                   berÃ¼cksichtigt.
 //
-// filter_all, filter_any und blacklist werden gleichzeitig ausgeführt.
-// Bei den Filtern bitte beachten: Datenpunkt-Inhalte bei Änderung ggf. vorher
-// löschen, diese werden nicht nachträglich gefiltert.
+// filter_all, filter_any und blacklist werden gleichzeitig ausgefÃ¼hrt.
+// Bei den Filtern bitte beachten: Datenpunkt-Inhalte bei Ã„nderung ggf. vorher
+// lÃ¶schen, diese werden nicht nachtrÃ¤glich gefiltert.
 //
-// Die Filter-Einträge können natürlich beliebig geändert und erweitert werden,
+// Die Filter-EintrÃ¤ge kÃ¶nnen natÃ¼rlich beliebig geÃ¤ndert und erweitert werden,
 // bitte aber den Aufbau beibehalten.
 //
 const L_FILTER = [
   {
-    id:          'all',    // wir wollen hier alle Logeinträge, keine Filterung
+    id:          'all',    // wir wollen hier alle LogeintrÃ¤ge, keine Filterung
     filter_all:  ['', ''], // wird ignoriert, wenn leer
     filter_any:  ['', ''], // wird ignoriert, wenn leer
     blacklist:   ['', ''], // wird ignoriert, wenn leer
   },
   {
     id:          'debug',
-    filter_all:  [' - debug: '], // nur Logeinträge mit Level 'debug'
+    filter_all:  [' - debug: '], // nur LogeintrÃ¤ge mit Level 'debug'
     filter_any:  ['', ''],
     blacklist:   ['', ''],
   },
   {
     id:          'info',
-    filter_all:  [' - info: '],  // nur Logeinträge mit Level 'info'
+    filter_all:  [' - info: '],  // nur LogeintrÃ¤ge mit Level 'info'
     filter_any:  ['', ''],
     blacklist:   ['', ''],
   },
   {
     id:          'warn',
-    filter_all:  [' - warn: '],  // nur Logeinträge mit Level 'warn'
+    filter_all:  [' - warn: '],  // nur LogeintrÃ¤ge mit Level 'warn'
     filter_any:  ['', ''],
     blacklist:   ['', ''],
   },
   {
     id:          'error',
-    filter_all:  [' - error: '],  // nur Logeinträge mit Level 'error'
+    filter_all:  [' - error: '],  // nur LogeintrÃ¤ge mit Level 'error'
     filter_any:  ['', ''],
     blacklist:   ['', ''],
   },
@@ -149,10 +148,10 @@ const L_FILTER = [
     filter_any:  [' - error: ', ' - warn: '],
     blacklist:   ['javascript.0 ^', 'no playback content', ''],
   },
-  // Beispiel für individuellen Eintrag. Hier wird Euer Hubschrauber-Landeplatz
-  // überwacht :-) Wir wollen nur Einträge vom Adapter 'hubschr.0'.
+  // Beispiel fÃ¼r individuellen Eintrag. Hier wird Euer Hubschrauber-Landeplatz
+  // Ã¼berwacht :-) Wir wollen nur EintrÃ¤ge vom Adapter 'hubschr.0'.
   // Dabei sollen entweder Wetterwarnungen, Alarme, oder UFOs gemeldet werden.
-  // Alles unter Windstärke "5 Bft" interessiert uns dabei nicht, daher haben
+  // Alles unter WindstÃ¤rke "5 Bft" interessiert uns dabei nicht, daher haben
   // wir '0 Bft' bis '4 Bft' auf die Blackliste gesetzt.
   {
     id:          'hubschrauberlandeplatz',
@@ -173,25 +172,25 @@ const L_FILTER = [
 // Ansonsten bitte auf false stellen.
 const LOG_DEBUG = false;
 
-// Auf true setzen, wenn ein paar Infos im Log ausgegeben werden dürfen, bei false bleiben die Infos weg.
+// Auf true setzen, wenn ein paar Infos im Log ausgegeben werden dÃ¼rfen, bei false bleiben die Infos weg.
 const LOG_INFO = false;
 
 /*******************************************************************************
  * Experten-Konfiguration
  ******************************************************************************/
-// Regex für die Aufteilung des Logs in 1-Datum/Zeit, 3-Level, 5-Quelle und 7-Logtext.
+// Regex fÃ¼r die Aufteilung des Logs in 1-Datum/Zeit, 3-Level, 5-Quelle und 7-Logtext.
 // Ggf. anzupassen bei anderem Datumsformat im Log. Wir erwarten ein Format
 // wie '2018-07-22 12:45:02.769  - info: javascript.0 Stop script script.js.ScriptAbc'
 const REGEX_LOG = /([0-9_.\-:\s]*)(\s+\- )(silly|debug|info|warn|error|)(: )([a-z0-9.\-]*)(\s)(.*)/g;
 
 // Der folgende Kommentar "jshint maxerr:1000" wird verwendet wegen
 // "too many errors (XX% scanned)".
-// Bitte gegebenenfalls löschen...
+// Bitte gegebenenfalls lÃ¶schen...
 /* jshint maxerr:1000 */
 
 
 /*******************************************************************************
- * Ab hier nichts mehr ändern / Stop editing here!
+ * Ab hier nichts mehr Ã¤ndern / Stop editing here!
  ******************************************************************************/
 
 /**
@@ -259,7 +258,7 @@ function L_UpdateLog() {
             // We apply regex here. This will also eliminate all log lines without proper info
             // like date/time, log level, and entry.
             var arrSplitLogLine = L_SplitLogLine(loopElement, REGEX_LOG);
-            if (L_IsValueEmptyNullUndefined(arrSplitLogLine) === false) {
+            if (arrSplitLogLine !== false) {
 
                 /////////////////
                 // We apply our filters.
@@ -356,9 +355,9 @@ function L_processLogAndSetToState(arrayLogInput) {
             ///////////////////////////////
             var jsonArr = [];
             for (var j = 0; j < myArrayJSON.length; j++) {
-                // We aplly regex here to get 3 elements in array: datetime, level, message
+                // We aplly regex here to get 4 elements in array: datetime, level, source, message
                 var arrSplitLogLine = L_SplitLogLine(myArrayJSON[j], REGEX_LOG);
-                if (L_IsValueEmptyNullUndefined(arrSplitLogLine) === false) {
+                if (arrSplitLogLine !== false) {
                     var strLogMsg = arrSplitLogLine.message;
                     // Reduce the length for each log message per configuration
                     strLogMsg = strLogMsg.substr(0, L_LEN);
@@ -437,15 +436,16 @@ function L_StringContainsTerms(strInput, arrayTerms, type) {
  * Splits a given log line into an array with 4 elements.
  * @param {string} strLog   Log line like '2018-07-22 11:47:53.019  - info: javascript.0 script.js ...'
  * @param {string} strRegex RegEx
+ * @param {boolean} validity check: true for yes, false for no
  * @return: Array with 4 elements: datetime (e.g. 2018-07-22 11:47:53.019),
  *          level (e.g. info), source (e.g. javascript.0)
  *          and message (e.g. script.js....)
- *          Returns an empty array if no match
+ *          Returns FALSE if no match
  */
 function L_SplitLogLine(strLog, strRegex) {
 
+    // At first we split into array
     var returnArray = [];
-
     var m;
     do {
         m = strRegex.exec(strLog);
@@ -454,11 +454,19 @@ function L_SplitLogLine(strLog, strRegex) {
             returnArray.level = m[3];
             returnArray.source = m[5];
             returnArray.message = m[7];
-        } else {
-            // No hits, we return empty array
-        }
+        } 
     } while (m);
 
+    // Now we check if we have valid entries we want
+    if ((returnArray.datetime === undefined)
+        || (returnArray.level === undefined)
+        || (returnArray.source === undefined)
+        || (returnArray.message === undefined)
+    ){
+        return false; // no valid hits
+    }
+
+    // We can return the array now, since it meets all requirements
     return returnArray;
 
 }
@@ -572,13 +580,13 @@ function L_GetCurrentISODate() {
 
 
 /**
- * Fügt Vornullen zu einer Zahl hinzu, macht also z.B. aus 7 eine "007".
+ * FÃ¼gt Vornullen zu einer Zahl hinzu, macht also z.B. aus 7 eine "007".
  * zeroPad(5, 4);    // wird "0005"
  * zeroPad('5', 6);  // wird "000005"
  * zeroPad(1234, 2); // wird "1234"
  * @param  {string|number}  num     Zahl, die Vornull(en) bekommen soll
  * @param  {number}         places  Anzahl Stellen.
- * @return {string}         Zahl mit Vornullen wie gewünscht.
+ * @return {string}         Zahl mit Vornullen wie gewÃ¼nscht.
  */
 function L_ZeroPad(num, places) {
     if (L_IsNumber(num)) {
@@ -616,8 +624,8 @@ function L_ReformatLogDate(strDate, format) {
 
 
 /**
- * Prüft ob Variableninhalt eine Zahl ist.
- * @param {any} Variable, die zu prüfen ist auf Zahl
+ * PrÃ¼ft ob Variableninhalt eine Zahl ist.
+ * @param {any} Variable, die zu prÃ¼fen ist auf Zahl
  * @return true falls Zahl, false falls nicht.
  * isNumber ('123'); // true
  * isNumber ('123abc'); // false
@@ -672,4 +680,3 @@ function L_Log(strMessage, strType) {
         log(strMsgFinal, "info");
     }
 }
-
