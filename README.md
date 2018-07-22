@@ -13,6 +13,10 @@ Parses log file, applies filters, and sets states for visualization
 
 ## Changelog
 
+### 0.4 (22-Jul-2018)
+* (Mic-M) Bug fix: improved validation of log line consistency
+
+
 ### 0.3 (22-Jul-2018)
 * (Mic-M) Added filtering, blacklist, and several fixes
 
