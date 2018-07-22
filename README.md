@@ -8,6 +8,9 @@ Parses log file, applies filters, and sets states for visualization
 4. Modify the settings in the script accordingly
 5. Save and activate the script.
 
+## Support
+* ioBroker Forum: [Log-Datei aufbereiten für VIS - JavaScript](https://forum.iobroker.net/viewtopic.php?f=21&t=15514).
+
 ## Changelog
 
 ### 0.3 (22-Jul-2018)
