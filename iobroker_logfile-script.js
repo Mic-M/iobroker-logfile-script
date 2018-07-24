@@ -244,7 +244,6 @@ function init() {
     // Schedule script accordingly
     // We use setTimeout() to execute 5s later and avoid error message on initial start if states not yet created.
     setTimeout(function() {
-            L_UpdateLog();
         schedule(L_SCHEDULE, function () {
             L_UpdateLog();
         });
