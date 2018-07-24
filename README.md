@@ -13,15 +13,21 @@ Parses log file, applies filters, and sets states for visualization
 
 ## Changelog
 
+### 0.5 (24-Jul-2018)
+* (Mic-M) + New parameter 'clean' to remove certain strings from the log line.
+* (Mic-M) + New parameter 'columns' for JSON output to specify which columns to be shown, and in which order.
+* (Mic-M) + New state "JSONcount" to have the number of log lines in state
+* (Mic-M) - Fixed a few issues
+
 ### 0.4 (22-Jul-2018)
-* (Mic-M) Bug fix: improved validation of log line consistency
+* (Mic-M) - Fix: improved validation of log line consistency
 
 
 ### 0.3 (22-Jul-2018)
-* (Mic-M) Added filtering, blacklist, and several fixes
+* (Mic-M) + Added filtering, blacklist, and several fixes
 
 ### 0.2 (21-Jul-2018)
-* (Mic-M) Bug fix: corrected wrong function name
+* (Mic-M) - Fix: corrected wrong function name
 
 ### 0.1 (20-Jul-2018)
 * (Mic-M) Initial Release
