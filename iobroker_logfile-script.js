@@ -10,22 +10,35 @@
  * Es stehen auch JSON-Datenpunkte zur Verfügung, mit diesen kann im vis eine
  * Tabelle ausgegeben werden (z.B. über das Widget 'basic - Tabelle')-
  *
- * Aktuelle Version unter: https://github.com/Mic-M/iobroker.logfile-script
- *
- * Siehe auch: https://forum.iobroker.net/viewtopic.php?f=21&t=15514
+ * Aktuelle Version:    https://github.com/Mic-M/iobroker.logfile-script
+ * Support:             https://forum.iobroker.net/viewtopic.php?f=21&t=15514
  *
  * Change Log:
+ *  0.5  Mic + New parameter 'clean' to remove certain strings
+ *             from the log line.
+ *           + New parameter 'columns' for JSON output to specify which columns
+ *             to be shown, and in which order.
+ *           + New state "JSONcount" to have the number of log lines in state
+ *           - Fixed a few issues
  *  0.4  Mic - Bug fix: improved validation of log line consistency
- *  0.3  Mic - Added filtering, blacklist, and several fixes
+ *  0.3  Mic + Added filtering and blacklist
+ *           - Several fixes
  *  0.2  Mic - Bug fix: corrected wrong function name
- *  0.1  Mic - Initial release
+ *  0.1  Mic * Initial release
  *
  * To Do:
  *  - Wenn z.B. Schedule auf alle 2 Minuten, dann fehlt das Log zwischen
  *    23:58 und 0:00, da ab 0:00 Uhr ein neues Logfile auf dem Server erstellt
  *    wird. Ab 0:00 + x Minuten (lt. Schedule) + Puffer ist also auch noch das
  *    Logfile vom Vortag mit auszulesen.
-  *******************************************************************************/
+ *  - State-Button für JSON - "Clear Log". Klick auf Button setzt Zeitstempel
+ *    in einen Datenpunkt. Es werden dann nur Logs im JSON angezeigt größer
+ *    Zeitstempel. 
+ *    Damit kann man Status-Meldungen im vis ausgeben und diese leeren. Cool für
+ *    Widgets wie die Metro-Widgets, die die Anzahl der neuen Meldungen anzeigen
+ *    können. Diese kann man dann als "gelesen" markieren und mit dem Button
+ *    entfernen.
+ *******************************************************************************/
 
 /*******************************************************************************
  * Konfiguration: Pfade
@@ -33,8 +46,8 @@
 // Pfad, unter dem die States in den Objekten angelegt werden.
 const L_STATE_PATH = 'javascript.'+ instance + '.' + 'mylog';
 
-// Pfad zu dem Log-Verzeichnis auf dem Linux-Rechner.
-// Der Standard-Pfad ist '/opt/iobroker/log/'.
+// Pfad zu dem Log-Verzeichnis.
+// Der Standard-Pfad auf Raspberry: '/opt/iobroker/log/'.
 const L_LOG_PATH = '/opt/iobroker/log/';
 
 // Leer lassen! Nur setzen, falls ein eigener Filename für das Logfile verwendet wird
@@ -90,7 +103,7 @@ const L_NO_OF_ENTRIES_JSON = 60;
 // Filter setzen, also Wörter/Begriffe, die in Logeinträgen enthalten sein
 // sollen und in den Datenpunkten aufgenommen werden.
 //
-// id:          Hier Begriff ohne Leerzeichen, z.B. "error", "sonoff", etc.
+// id:         Hier Begriff ohne Leerzeichen, z.B. "error", "sonoff", etc.
 //             Die ID wird dann Teil der ID der Datenpunkte.
 // filter_all: ALLE Begriffe müssen in der Logzeile enthalten sein. Ist einer
 //             der Begriffe nicht enthalten, dann wird der komplette Logeintrag
@@ -98,17 +111,26 @@ const L_NO_OF_ENTRIES_JSON = 60;
 //             Leeres Array eingeben [] falls hier filtern nicht gewünscht.
 // filter_any: Mindestens einer der gelisteten Begriffe muss enthalten sein.
 //             Leeres Array eingeben [] falls hier filtern nicht gewünscht.
-// blacklist: Wenn einer dieser Begriffe im Logeintrag enthalten ist,
-//                   so wird der komplette Logeintrag nicht übernommen, egal was
-//                   vorher in filter_all oder filter_any definiert ist.
-//                   Mindestens 3 Zeichen erforderlich, sonst wird es nicht
-//                   berücksichtigt.
+// blacklist:  Wenn einer dieser Begriffe im Logeintrag enthalten ist,
+//             so wird der komplette Logeintrag nicht übernommen, egal was
+//             vorher in filter_all oder filter_any definiert ist.
+//             Mindestens 3 Zeichen erforderlich, sonst wird es nicht
+//             berücksichtigt.
+// clean:      Der Log-Eintrag wird um diese Zeichenfolgen bereinigt, d.h. diese
+//             werden entfernt, aber die restliche Zeile bleibt bestehen. Z.B.
+//             um unerwünschte Zeichenfolgen zu entfernen oder Log-Ausgaben
+//             zu kürzen.
+// columns:    Nur für JSON (für vis). 
+//             Folgende Spalten gibt es: 'date','level','source','msg'
+//             Hier können einzelne Spalten entfernt oder die Reihenfolge
+//             verändert werden.
+//             Bitte keine anderen Werte eintragen.
 //
 // filter_all, filter_any und blacklist werden gleichzeitig ausgeführt.
 // Bei den Filtern bitte beachten: Datenpunkt-Inhalte bei Änderung ggf. vorher
 // löschen, diese werden nicht nachträglich gefiltert.
 //
-// Die Filter-Einträge können natürlich beliebig geändert und erweitert werden,
+// Die Filter-Einträge können natürlich beliebig geändert und erweitert werden, 
 // bitte aber den Aufbau beibehalten.
 //
 const L_FILTER = [
@@ -117,49 +139,66 @@ const L_FILTER = [
     filter_all:  ['', ''], // wird ignoriert, wenn leer
     filter_any:  ['', ''], // wird ignoriert, wenn leer
     blacklist:   ['', ''], // wird ignoriert, wenn leer
+    clean:       ['', '', ''], // wird ignoriert, wenn leer
+    columns:     ['date','level','source','msg'],  // Spaltenreihenfolge für JSON (Tabelle in vis)
   },
   {
     id:          'debug',
     filter_all:  [' - debug: '], // nur Logeinträge mit Level 'debug'
     filter_any:  ['', ''],
     blacklist:   ['', ''],
+    clean:       ['', '', ''],
+    columns:     ['date','level','source','msg'],
   },
   {
     id:          'info',
     filter_all:  [' - info: '],  // nur Logeinträge mit Level 'info'
     filter_any:  ['', ''],
     blacklist:   ['', ''],
+    clean:       ['', '', ''],
+    columns:     ['date','level','source','msg'],
   },
   {
     id:          'warn',
     filter_all:  [' - warn: '],  // nur Logeinträge mit Level 'warn'
     filter_any:  ['', ''],
     blacklist:   ['', ''],
+    clean:       ['', '', ''],
+    columns:     ['date','level','source','msg'],
   },
   {
     id:          'error',
     filter_all:  [' - error: '],  // nur Logeinträge mit Level 'error'
     filter_any:  ['', ''],
     blacklist:   ['', ''],
+    clean:       ['', '', ''],
+    columns:     ['date','level','source','msg'],
   },
   {
     id:          'warnanderror',
     filter_all:  ['', ''],
     filter_any:  [' - error: ', ' - warn: '],
     blacklist:   ['javascript.0 ^', 'no playback content', ''],
+    clean:       ['', '', ''],
+    columns:     ['date','level','source','msg'],
   },
   // Beispiel für individuellen Eintrag. Hier wird Euer Hubschrauber-Landeplatz
   // überwacht :-) Wir wollen nur Einträge vom Adapter 'hubschr.0'.
   // Dabei sollen entweder Wetterwarnungen, Alarme, oder UFOs gemeldet werden.
   // Alles unter Windstärke "5 Bft" interessiert uns dabei nicht, daher haben
   // wir '0 Bft' bis '4 Bft' auf die Blackliste gesetzt.
+  // Außerdem entfernen wir von der Log-Zeile die Zeichenfolgen '****', '!!!!' 
+  // und 'ufo gesichtet', der Rest bleibt aber bestehen.
+  // Zudem haben wir unter columns die Spaltenreihenfolge geändert. 'level'
+  // herausgenommen, und Quelle ganz vorne.
   {
     id:          'hubschrauberlandeplatz',
     filter_all:  ['hubschr.0'],
     filter_any:  ['wetterwarnung', 'alarm', 'ufo'],
     blacklist:   ['0 Bft', '1 Bft', '2 Bft', '3 Bft', '4 Bft'],
-  },
-
+    clean:       ['****', '!!!!', 'ufo gesichtet'],
+    columns:     ['level','date','msg'],
+  }, 
 
 ];
 
@@ -198,18 +237,19 @@ const REGEX_LOG = /([0-9_.\-:\s]*)(\s+\- )(silly|debug|info|warn|error|)(: )([a-
  */
 init();
 function init() {
-
+ 
     // Create states
     L_createStates();
 
     // Schedule script accordingly
     // We use setTimeout() to execute 5s later and avoid error message on initial start if states not yet created.
-
     setTimeout(function() {
+            L_UpdateLog();
         schedule(L_SCHEDULE, function () {
             L_UpdateLog();
         });
     }, 5000);
+
 }
 
 /**
@@ -264,7 +304,7 @@ function L_UpdateLog() {
                 // We apply our filters.
                 /////////////////
                 if (L_IsValueEmptyNullUndefined(L_FILTER) === false) {
-
+                    
                     // Now let's iterate again over the filter array elements
                     // We check if both the "all" and "any" filters  apply. If yes, - and blacklist false - we add the log line.
                     for (var k = 0; k < L_FILTER.length; k++) {
@@ -273,6 +313,14 @@ function L_UpdateLog() {
                             && (L_StringContainsTerms(loopElement, L_FILTER[k].blacklist, 'blacklist') === false)
                             ){
                                 logArrayProcessed[L_FILTER[k].id] = logArrayProcessed[L_FILTER[k].id] + loopElement + "\n";
+                        }
+                        // Now we remove terms if desired
+                        if (L_IsValueEmptyNullUndefined(L_FILTER[k].clean) === false) {
+                            for (var lpTerm of L_FILTER[k].clean) {
+                                if (lpTerm !== '') {
+                                    logArrayProcessed[L_FILTER[k].id] = logArrayProcessed[L_FILTER[k].id].replace(lpTerm, '');
+                                }
+                            }
                         }
                     }
                 } // if
@@ -300,17 +348,19 @@ function L_processLogAndSetToState(arrayLogInput) {
     // Build log levels array and add filters (like 'all', 'alerts', etc.)
     var arrayFilterIds = [];
     for (var i = 0; i < L_FILTER.length; i++) {
-        arrayFilterIds.push(L_FILTER[i].id);
+        arrayFilterIds.push(L_FILTER[i].id); // each filter id into array
     }
 
     // Loop through the log filter ids
-    for (var lpFilterId of arrayFilterIds) {
-        // Log filter id(all, error, etc.) = lpFilterId
-        // Content of Log Level = arrayLogInput[lpFilterId]
-        var strLoopLogContent = arrayLogInput[lpFilterId];
+
+    for (var k = 0; k < arrayFilterIds.length; k++) {
+
+        // Log filter id(all, error, etc.) = arrayFilterIds[k]
+        // Content of Log Level = arrayLogInput[arrayFilterIds[k]]
+        var strLoopLogContent = arrayLogInput[arrayFilterIds[k]];
 
         // Get full path to state
-        var strStateFullPath = L_STATE_PATH + '.' + 'log' + prepStateNameInclCapitalizeFirst(lpFilterId);
+        var strStateFullPath = L_STATE_PATH + '.' + 'log' + prepStateNameInclCapitalizeFirst(arrayFilterIds[k]);
 
         // Get state contents of loop filter id and append it
         var strStateLogContent = getState(strStateFullPath).val;
@@ -318,7 +368,6 @@ function L_processLogAndSetToState(arrayLogInput) {
             strLoopLogContent = strLoopLogContent + strStateLogContent; // "\n" not needed, always added above
         }
 
-        // Don't continue if no log entries
         if (L_IsValueEmptyNullUndefined(strLoopLogContent) === false) {
             // Convert to array for easier handling
             var myArray = strLoopLogContent.split(/\r?\n/);
@@ -354,24 +403,54 @@ function L_processLogAndSetToState(arrayLogInput) {
             // -2- JSON, with elements date and msg
             ///////////////////////////////
             var jsonArr = [];
+            // Let's put together the JSON
             for (var j = 0; j < myArrayJSON.length; j++) {
-                // We aplly regex here to get 4 elements in array: datetime, level, source, message
+                // +++
+                // We apply regex here to get 4 elements in array: datetime, level, source, message
+                // +++
                 var arrSplitLogLine = L_SplitLogLine(myArrayJSON[j], REGEX_LOG);
                 if (arrSplitLogLine !== false) {
                     var strLogMsg = arrSplitLogLine.message;
                     // Reduce the length for each log message per configuration
                     strLogMsg = strLogMsg.substr(0, L_LEN);
+                    // ++++++
                     // Build the final Array
-                    jsonArr.push({
-                        date: L_ReformatLogDate(arrSplitLogLine.datetime, L_DATE_FORMAT),
-                        level: arrSplitLogLine.level,
-                        source: arrSplitLogLine.source,
-                        msg: strLogMsg,
-                    });
+                    // ++++++
+                    // We need this section to generate the JSON with the columns (which ones, and order) as specified in L_FILTER
+
+                    var objectJSONentry = {}; // object (https://stackoverflow.com/a/13488998)
+                    if (L_IsValueEmptyNullUndefined(L_FILTER[k].columns)) L_Log('Columns not specified in L_FILTER', 'error');
+                    for (var lpCol of L_FILTER[k].columns) {
+                        switch (lpCol) {
+                            case 'date' :
+                                objectJSONentry.date = L_ReformatLogDate(arrSplitLogLine.datetime, L_DATE_FORMAT);
+                                break;
+                            case 'level' :
+                                objectJSONentry.level = arrSplitLogLine.level;
+                                break;
+                            case 'source' :
+                                objectJSONentry.source = arrSplitLogLine.source;
+                                break;
+                            case 'msg' :
+                                objectJSONentry.msg = strLogMsg;
+                                break;
+                            default:
+                                //nothing;
+                        }
+                    }
+                    // Ok, so now we have the JSON entry.
+                    jsonArr.push(objectJSONentry);
                 }
 
             }
             setState(strStateFullPath + 'JSON', JSON.stringify(jsonArr));
+            setState(strStateFullPath + 'JSONcount', myArrayJSON.length);
+
+        } else {
+            // No log available, so we clean it.
+            setState(strStateFullPath, '');
+            setState(strStateFullPath + 'JSON', '');
+            setState(strStateFullPath + 'JSONcount', 0);
         }
     }
 }
@@ -485,8 +564,9 @@ function L_createStates() {
             if (L_FILTER[i].id !== '') {
                 var strIDClean = prepStateNameInclCapitalizeFirst(L_FILTER[i].id);
                 if (LOG_DEBUG) L_Log('clean ID: ' + '>' + strIDClean + '<');
-                statesArray.push({ id:'log' + strIDClean, name:'Filtered Log - ' + strIDClean, type:"string"});
-                statesArray.push({ id:'log' + strIDClean + 'JSON', name:'Filtered Log - ' + strIDClean + ' - JSON', type:"string"});
+                statesArray.push({ id:'log' + strIDClean, name:'Filtered Log - ' + strIDClean, type:"string", def: ""});
+                statesArray.push({ id:'log' + strIDClean + 'JSON', name:'Filtered Log - ' + strIDClean + ' - JSON', type:"string", def: ""});
+                statesArray.push({ id:'log' + strIDClean + 'JSONcount', name:'Filtered Log - Count of JSON ' + strIDClean, type:"number", def: 0});
             }
         }
     }
@@ -496,7 +576,7 @@ function L_createStates() {
             "name": statesArray[s].name,
             "desc": statesArray[s].name,
             "type": statesArray[s].type,
-            "def": '',
+            "def": statesArray[s].def,
             "read": true,
             "write": true
         });
