@@ -14,7 +14,16 @@
  * Support:             https://forum.iobroker.net/viewtopic.php?f=21&t=15514
  *
  * Change Log:
- *  0.5  Mic + New parameter 'clean' to remove certain strings
+ *  0.5.1 BETA Mic + New States "Clear JSON log ..." and "Clear JSON log - Date/Time ...".
+ *                   When the button "Clear JSON log" is pushed, the current date/time
+ *                   will be set into the date/time state. Once refreshed
+ *                   (per schedule in the script, e.g. after 2 minutes), the JSON 
+ *                   will be cleaned and display just newer logs.
+ *                   Use Case: In vis, you can now add a button "clear log" or 
+ *                   "Mark as read". If you hit the button, the log will be
+ *                   cleared and just new log items will be displayed.
+ *                   *** THIS IS STILL BEING TESTED *** therefore a beta release...
+  *  0.5  Mic + New parameter 'clean' to remove certain strings
  *             from the log line.
  *           + New parameter 'columns' for JSON output to specify which columns
  *             to be shown, and in which order.
@@ -38,6 +47,10 @@
  *    Widgets wie die Metro-Widgets, die die Anzahl der neuen Meldungen anzeigen
  *    können. Diese kann man dann als "gelesen" markieren und mit dem Button
  *    entfernen.
+ *  - Log-Datum wird derzeit im Format "2018-07-22 12:45:02.769" erwartet. 
+ *    Müsste das für andere Datumsformate anpassen. Umsetzung noch zu überlegen.
+ *    Ggf. ist die Syntax des Datums über Linux-Rechner verfügbar. Oder über
+ *    Konfiguration lösen. 
  *******************************************************************************/
 
 /*******************************************************************************
@@ -46,7 +59,7 @@
 // Pfad, unter dem die States in den Objekten angelegt werden.
 const L_STATE_PATH = 'javascript.'+ instance + '.' + 'mylog';
 
-// Pfad zu dem Log-Verzeichnis.
+// Pfad zu dem Log-Verzeichnis auf dem Linux-Rechner.
 // Der Standard-Pfad auf Raspberry: '/opt/iobroker/log/'.
 const L_LOG_PATH = '/opt/iobroker/log/';
 
@@ -72,7 +85,7 @@ const L_SCHEDULE  = "*/2 * * * *"; // alle 2 Minuten
 // nicht aufgenommen. Praktisch, um penetrante Logeinträge zu eliminieren.
 // Mindestens 3 Zeichen erforderlich, sonst wird es nicht berücksichtigt.
 // Datenpunkt-Inhalte bei Änderung ggf. vorher löschen, diese werden nicht nachträglich gefiltert.
-const L_BLACKLIST_GLOBAL = ['', '', '', ''];
+const L_BLACKLIST_GLOBAL = ['<==Disconnect system.user.admin from ::ffff:', '', '', ''];
 
 // Entferne zusätzliche Leerzeichen, Tab-Stops, Zeilenumbrüche
 // Wird empfohlen. Falls nicht gewünscht, auf false setzen.
@@ -244,10 +257,20 @@ function init() {
     // Schedule script accordingly
     // We use setTimeout() to execute 5s later and avoid error message on initial start if states not yet created.
     setTimeout(function() {
-        schedule(L_SCHEDULE, function () {
+//        L_UpdateLog(); // execute on start
+        schedule(L_SCHEDULE, function () {  // apply schedule
             L_UpdateLog();
         });
     }, 5000);
+
+    // Set current date to state if button is pressed
+    for (var i = 0; i < L_FILTER.length; i++) {
+        var strIDCleanFinal = L_STATE_PATH + '.' + 'log' + prepStateNameInclCapitalizeFirst(L_FILTER[i].id) + 'JSONclear';
+        on({id: strIDCleanFinal, change: "any"}, function(obj) {
+            var currentDate = new Date();
+            setState(obj.id + 'DateTime', currentDate.toString());
+        }); // warning on the left can be ignored, we need a function here...
+    }
 
 }
 
@@ -380,9 +403,20 @@ function L_processLogAndSetToState(arrayLogInput) {
             // Sort array descending
             myArray = L_SortLogByDate(myArray, 'desc');
 
+            // Separate ID for JSON
+            var myArrayJSON = myArray;
+            
+
+            // This is to clear the log
+            // Let's remove elements if current date in state "logXXXJSONclearDateTime" is greater than log date.
+            var strDateFromState = getState(strStateFullPath + 'JSONclearDateTime').val;
+            if (L_IsValueEmptyNullUndefined(strDateFromState) === false) {
+                myArrayJSON = L_clearArrayByDate(myArrayJSON, strDateFromState);              
+            }
+            
             // Just keep the first x elements of the array
             myArray = myArray.slice(0, L_NO_OF_ENTRIES);
-            var myArrayJSON = myArray.slice(0, L_NO_OF_ENTRIES_JSON);
+            myArrayJSON = myArrayJSON.slice(0, L_NO_OF_ENTRIES_JSON);
 
             // Sort ascending if desired
             if (L_SORT_ORDER === 'A') {
@@ -442,9 +476,14 @@ function L_processLogAndSetToState(arrayLogInput) {
                 }
 
             }
-            setState(strStateFullPath + 'JSON', JSON.stringify(jsonArr));
-            setState(strStateFullPath + 'JSONcount', myArrayJSON.length);
-
+            if (L_IsValueEmptyNullUndefined(myArrayJSON) === false) {
+                setState(strStateFullPath + 'JSON', JSON.stringify(jsonArr));
+                setState(strStateFullPath + 'JSONcount', myArrayJSON.length);
+            } else {
+                // Is empty here if for example L_clearArrayByDate had no hits
+                setState(strStateFullPath + 'JSON', '');
+                setState(strStateFullPath + 'JSONcount', 0);                
+            }
         } else {
             // No log available, so we clean it.
             setState(strStateFullPath, '');
@@ -453,6 +492,25 @@ function L_processLogAndSetToState(arrayLogInput) {
         }
     }
 }
+
+/**
+ * Clear array: if strDate is greater or equal than log date, we remove the entire log entry
+ */
+function L_clearArrayByDate(inputArray, strDate) {
+    var dtState = new Date(strDate); // the date provided from the state
+
+    var newArray = [];
+    for (var lpLog of inputArray) {
+        var dtLog = new Date(lpLog.substr(0,23));
+        if (dtLog >= dtState) {
+            newArray.push(lpLog);            
+        }
+
+  }
+  return newArray;
+}
+
+
 
 /**
  * Checks if the string provided contains either every or some terms.
@@ -563,21 +621,24 @@ function L_createStates() {
             if (L_FILTER[i].id !== '') {
                 var strIDClean = prepStateNameInclCapitalizeFirst(L_FILTER[i].id);
                 if (LOG_DEBUG) L_Log('clean ID: ' + '>' + strIDClean + '<');
-                statesArray.push({ id:'log' + strIDClean, name:'Filtered Log - ' + strIDClean, type:"string", def: ""});
-                statesArray.push({ id:'log' + strIDClean + 'JSON', name:'Filtered Log - ' + strIDClean + ' - JSON', type:"string", def: ""});
-                statesArray.push({ id:'log' + strIDClean + 'JSONcount', name:'Filtered Log - Count of JSON ' + strIDClean, type:"number", def: 0});
+                statesArray.push({ id:'log' + strIDClean, name:'Filtered Log - ' + strIDClean, type:"string", role: "log", def: ""});
+                statesArray.push({ id:'log' + strIDClean + 'JSON', name:'Filtered Log - ' + strIDClean + ' - JSON', type:"string", role: "log", def: ""});
+                statesArray.push({ id:'log' + strIDClean + 'JSONcount', name:'Filtered Log - Count of JSON ' + strIDClean, role: "log", type:"number", def: 0});
+                statesArray.push({ id:'log' + strIDClean + 'JSONclear', name:'Clear JSON log ' + strIDClean, role: "button", type:"boolean", def: false});
+                statesArray.push({ id:'log' + strIDClean + 'JSONclearDateTime', name:'Clear JSON log - Date/Time ' + strIDClean, role: "log", type:"string", def: ''});
             }
         }
     }
 
     for (var s=0; s < statesArray.length; s++) {
         createState(L_STATE_PATH + '.' + statesArray[s].id, {
-            "name": statesArray[s].name,
-            "desc": statesArray[s].name,
-            "type": statesArray[s].type,
-            "def": statesArray[s].def,
-            "read": true,
-            "write": true
+            'name': statesArray[s].name,
+            'desc': statesArray[s].name,
+            'type': statesArray[s].type,
+            'read': true,
+            'write': true,
+            'role': statesArray[s].role,
+            'def': statesArray[s].def,
         });
     }
 }
