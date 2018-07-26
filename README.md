@@ -2,7 +2,7 @@
 Parses log file, applies filters, and sets states for visualization
 
 ## Installation Instructions
-1. Download file „iobroker_logfile-script.js“ to your local computer, open the file and copy its contents into the clipboard.
+1. Copy contents of „iobroker_logfile-script.js“ into the clipboard.
 2. Open your ioBroker adminstration page, navigate to the "Scripts" section, add a new JavaScript and paste the contents.
 3. Change the name of the script e.g. to "Logfile-Script" and save it. Make sure the script is **not** under the Global folder, that's simply not required and not a good idea at all.
 4. Modify the settings in the script accordingly
@@ -12,6 +12,9 @@ Parses log file, applies filters, and sets states for visualization
 * ioBroker Forum: [Log-Datei aufbereiten für VIS - JavaScript](https://forum.iobroker.net/viewtopic.php?f=21&t=15514).
 
 ## Changelog
+
+### 0.5.1 BETA (26-Jul-2018)
+* (Mic-M) + New States "Clear JSON log ..." and "Clear JSON log - Date/Time ...". See change history in script for details
 
 ### 0.5 (24-Jul-2018)
 * (Mic-M) + New parameter 'clean' to remove certain strings from the log line.
