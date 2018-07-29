@@ -13,6 +13,10 @@ Parses log file, applies filters, and sets states for visualization
 
 ## Changelog
 
+### 0.6 (29-Jul-2018)
+* (Mic-M) + Put 0.5.1 BETA into stable
+* (Mic-M) + New option L_APPLY_CSS. If true, it will add HTML "span class='log-info'" to each log string. 'log-info' for level info, 'log-error' for error, etc. This makes it easy to format a JSON table text with CSS per log level. In addition to that, new option L_APPLY_CSS_LIMITED_TO_LEVEL to just apply the CSS to the log level text (warn, error, info, etc.).
+
 ### 0.5.1 BETA (26-Jul-2018)
 * (Mic-M) + New States "Clear JSON log ..." and "Clear JSON log - Date/Time ...". See change history in script for details
 
