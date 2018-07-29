@@ -14,6 +14,10 @@
  * Support:             https://forum.iobroker.net/viewtopic.php?f=21&t=15514
  *
  * Change Log:
+ *  0.6 Mic + Put 0.5.1 BETA into stable
+ *          + New option L_APPLY_CSS. If true, it will add <span class='log-info'>xxx</span>
+ *            to each log string. 'log-info' for level info, 'log-error' for error, etc.
+ *            This makes it easy to format a JSON table with CSS.
  *  0.5.1 BETA Mic + New States "Clear JSON log ..." and "Clear JSON log - Date/Time ...".
  *                   When the button "Clear JSON log" is pushed, the current date/time
  *                   will be set into the date/time state. Once refreshed
@@ -23,7 +27,7 @@
  *                   "Mark as read". If you hit the button, the log will be
  *                   cleared and just new log items will be displayed.
  *                   *** THIS IS STILL BEING TESTED *** therefore a beta release...
-  *  0.5  Mic + New parameter 'clean' to remove certain strings
+ *  0.5  Mic + New parameter 'clean' to remove certain strings
  *             from the log line.
  *           + New parameter 'columns' for JSON output to specify which columns
  *             to be shown, and in which order.
@@ -85,7 +89,7 @@ const L_SCHEDULE  = "*/2 * * * *"; // alle 2 Minuten
 // nicht aufgenommen. Praktisch, um penetrante Logeinträge zu eliminieren.
 // Mindestens 3 Zeichen erforderlich, sonst wird es nicht berücksichtigt.
 // Datenpunkt-Inhalte bei Änderung ggf. vorher löschen, diese werden nicht nachträglich gefiltert.
-const L_BLACKLIST_GLOBAL = ['<==Disconnect system.user.admin from ::ffff:', '', '', ''];
+const L_BLACKLIST_GLOBAL = ['', '', '', ''];
 
 // Entferne zusätzliche Leerzeichen, Tab-Stops, Zeilenumbrüche
 // Wird empfohlen. Falls nicht gewünscht, auf false setzen.
@@ -106,6 +110,20 @@ const L_LEN = 100;
 // Zahl: Maximale Anzahl der letzten Logeinträge in den Datenpunkten. Alle älteren werden entfernt.
 // Speziell für das JSON-Log zur Visualisierung, hier brauchen wir ggf. weniger als für L_NO_OF_ENTRIES gesamt.
 const L_NO_OF_ENTRIES_JSON = 60;
+
+// Füge CSS-Klasse hinzu je nach Log-Level (error, warn, info, etc.), um Tabellen-Text zu formatieren.
+// Beispiel für Info: ersetzt "xxx" durch "<span class='log-info'>xxx</span>""
+// Analog für error: log-error, warn: log-warn, etc.
+// Beim Widget "basic - Table" im vis können im Reiter "CSS" z.B. folgende Zeilen hinzugefügt werden,
+// um Warnungen in oranger und Fehler in roter Farbe anzuzeigen.
+// .log-warn { color: orange; }
+// .log-error { color: red; }
+const L_APPLY_CSS = true;
+
+// L_APPLY_CSS wird nur für die Spalte "level" (also error, info) angewendet, aber nicht für die 
+// restlichen Spalten wie Datum, Log-Eintrag, etc.
+// Falls alle Zeilen formatiert werden sollen: auf false setzen.
+const L_APPLY_CSS_LIMITED_TO_LEVEL = true;
 
 
 /*******************************************************************************
@@ -235,10 +253,6 @@ const LOG_INFO = false;
 // wie '2018-07-22 12:45:02.769  - info: javascript.0 Stop script script.js.ScriptAbc'
 const REGEX_LOG = /([0-9_.\-:\s]*)(\s+\- )(silly|debug|info|warn|error|)(: )([a-z0-9.\-]*)(\s)(.*)/g;
 
-// Der folgende Kommentar "jshint maxerr:1000" wird verwendet wegen
-// "too many errors (XX% scanned)".
-// Bitte gegebenenfalls löschen...
-/* jshint maxerr:1000 */
 
 
 /*******************************************************************************
@@ -259,7 +273,7 @@ function init() {
     setTimeout(function() {
 //        L_UpdateLog(); // execute on start
         schedule(L_SCHEDULE, function () {  // apply schedule
-            L_UpdateLog();
+           L_UpdateLog();
         });
     }, 5000);
 
@@ -287,10 +301,10 @@ function L_UpdateLog() {
     if (LOG_DEBUG) L_Log('Path and Filename: ' + '>' + strFullLogPath + '<');
 
     // Reads the log file entry, result will be string in variable "data"
-    fs = require('fs');
+    var fs = require('fs');
     fs.readFile(strFullLogPath, 'utf8', function (err,data) {
         if (err) {
-            return L_Log(err, 'error');
+            return L_Log2(err, 'error');
         }
 
         // get log entries into array, these are separated by new line in the file...
@@ -406,12 +420,13 @@ function L_processLogAndSetToState(arrayLogInput) {
             // Separate ID for JSON
             var myArrayJSON = myArray;
             
-
             // This is to clear the log
             // Let's remove elements if current date in state "logXXXJSONclearDateTime" is greater than log date.
             var strDateFromState = getState(strStateFullPath + 'JSONclearDateTime').val;
             if (L_IsValueEmptyNullUndefined(strDateFromState) === false) {
-                myArrayJSON = L_clearArrayByDate(myArrayJSON, strDateFromState);              
+                if (strDateFromState !== 0) { // we set it to 0 via vis widget if we want to clear the state
+                    myArrayJSON = L_clearArrayByDate(myArrayJSON, strDateFromState);              
+                }
             }
             
             // Just keep the first x elements of the array
@@ -435,8 +450,9 @@ function L_processLogAndSetToState(arrayLogInput) {
             ///////////////////////////////
             // -2- JSON, with elements date and msg
             ///////////////////////////////
-            var jsonArr = [];
+      
             // Let's put together the JSON
+            var jsonArr = [];
             for (var j = 0; j < myArrayJSON.length; j++) {
                 // +++
                 // We apply regex here to get 4 elements in array: datetime, level, source, message
@@ -452,20 +468,32 @@ function L_processLogAndSetToState(arrayLogInput) {
                     // We need this section to generate the JSON with the columns (which ones, and order) as specified in L_FILTER
 
                     var objectJSONentry = {}; // object (https://stackoverflow.com/a/13488998)
-                    if (L_IsValueEmptyNullUndefined(L_FILTER[k].columns)) L_Log('Columns not specified in L_FILTER', 'error');
+                    if (L_IsValueEmptyNullUndefined(L_FILTER[k].columns)) L_Log2('Columns not specified in L_FILTER', 'error');
+                    // Prepare CSS
+                    if (L_APPLY_CSS) {
+                        var strCSS1 = "<span class='log-" + arrSplitLogLine.level + "'>";
+                        var strCSS2 = '</span>';
+                        var strCSS1_level = strCSS1;
+                        var strCSS2_level = strCSS1;
+                        if (L_APPLY_CSS_LIMITED_TO_LEVEL) {
+                            strCSS1 = '';
+                            strCSS2 = '';
+                        }
+                    }
+
                     for (var lpCol of L_FILTER[k].columns) {
                         switch (lpCol) {
                             case 'date' :
-                                objectJSONentry.date = L_ReformatLogDate(arrSplitLogLine.datetime, L_DATE_FORMAT);
+                                objectJSONentry.date = strCSS1 + L_ReformatLogDate(arrSplitLogLine.datetime, L_DATE_FORMAT) + strCSS2;
                                 break;
                             case 'level' :
-                                objectJSONentry.level = arrSplitLogLine.level;
+                                objectJSONentry.level = strCSS1_level + arrSplitLogLine.level + strCSS2_level;
                                 break;
                             case 'source' :
-                                objectJSONentry.source = arrSplitLogLine.source;
+                                objectJSONentry.source = strCSS1 + arrSplitLogLine.source + strCSS2;
                                 break;
                             case 'msg' :
-                                objectJSONentry.msg = strLogMsg;
+                                objectJSONentry.msg = strCSS1 + strLogMsg + strCSS2;
                                 break;
                             default:
                                 //nothing;
@@ -735,7 +763,7 @@ function L_ZeroPad(num, places) {
         return Array(+(zero > 0 && zero)).join("0") + num;
     } else {
         // No number provided, so we through an eror
-        L_Log('Function [' + arguments.callee.toString().match(/function ([^\(]+)/)[1] + '] - no number/string provided', 'error');
+        L_Log2('Function [' + arguments.callee.toString().match(/function ([^\(]+)/)[1] + '] - no number/string provided', 'error');
     }
 
 }
@@ -749,7 +777,7 @@ function L_ZeroPad(num, places) {
  */
 function L_ReformatLogDate(strDate, format) {
 
-    strResult = format;
+    var strResult = format;
     strResult = strResult.replace('yyyy', strDate.substr(0,4));
     strResult = strResult.replace('mm', strDate.substr(5,2));
     strResult = strResult.replace('dd', strDate.substr(8,2));
@@ -810,8 +838,11 @@ function L_IsValueEmptyNullUndefined(inputVar) {
  * @param string strMessage - die Message
  * @param string strType - don't add if [info], use "warn" for [warn] and "error" for [error]
  */
-function L_Log(strMessage, strType) {
-    strMsgFinal = '[L] ' + strMessage + '';
+function L_Log(strMessage) {
+    L_Log2(strMessage, 'info');
+}
+function L_Log2(strMessage, strType) {
+    var strMsgFinal = '[L] ' + strMessage + '';
     if (strType === "error") {
         log(strMsgFinal, "error");
     } else if (strType === "warn") {
