@@ -14,6 +14,8 @@
  * Support:             https://forum.iobroker.net/viewtopic.php?f=21&t=15514
  *
  * Change Log:
+ *  0.7 Mic - Fix: States "...clearDateTime" will not get an initial date value on first script start,
+ *                 also fix for "on({id: ".
  *  0.6 Mic + Put 0.5.1 BETA into stable
  *          + New option L_APPLY_CSS. If true, it will add <span class='log-info'>xxx</span>
  *            to each log string. 'log-info' for level info, 'log-error' for error, etc.
@@ -44,13 +46,6 @@
  *    23:58 und 0:00, da ab 0:00 Uhr ein neues Logfile auf dem Server erstellt
  *    wird. Ab 0:00 + x Minuten (lt. Schedule) + Puffer ist also auch noch das
  *    Logfile vom Vortag mit auszulesen.
- *  - State-Button für JSON - "Clear Log". Klick auf Button setzt Zeitstempel
- *    in einen Datenpunkt. Es werden dann nur Logs im JSON angezeigt größer
- *    Zeitstempel. 
- *    Damit kann man Status-Meldungen im vis ausgeben und diese leeren. Cool für
- *    Widgets wie die Metro-Widgets, die die Anzahl der neuen Meldungen anzeigen
- *    können. Diese kann man dann als "gelesen" markieren und mit dem Button
- *    entfernen.
  *  - Log-Datum wird derzeit im Format "2018-07-22 12:45:02.769" erwartet. 
  *    Müsste das für andere Datumsformate anpassen. Umsetzung noch zu überlegen.
  *    Ggf. ist die Syntax des Datums über Linux-Rechner verfügbar. Oder über
@@ -89,7 +84,7 @@ const L_SCHEDULE  = "*/2 * * * *"; // alle 2 Minuten
 // nicht aufgenommen. Praktisch, um penetrante Logeinträge zu eliminieren.
 // Mindestens 3 Zeichen erforderlich, sonst wird es nicht berücksichtigt.
 // Datenpunkt-Inhalte bei Änderung ggf. vorher löschen, diese werden nicht nachträglich gefiltert.
-const L_BLACKLIST_GLOBAL = ['', '', '', ''];
+const L_BLACKLIST_GLOBAL = ['<==Disconnect system.user.admin from ::ffff:', '', '', ''];
 
 // Entferne zusätzliche Leerzeichen, Tab-Stops, Zeilenumbrüche
 // Wird empfohlen. Falls nicht gewünscht, auf false setzen.
@@ -253,6 +248,9 @@ const LOG_INFO = false;
 // wie '2018-07-22 12:45:02.769  - info: javascript.0 Stop script script.js.ScriptAbc'
 const REGEX_LOG = /([0-9_.\-:\s]*)(\s+\- )(silly|debug|info|warn|error|)(: )([a-z0-9.\-]*)(\s)(.*)/g;
 
+// Debug: Falls auf true, dann werden die Datenpunkte nicht ausgelesen, sondern von 
+// der Log-Datei immer neu gesetzt.
+const DEBUG_IGNORE_STATES = false;
 
 
 /*******************************************************************************
@@ -268,19 +266,24 @@ function init() {
     // Create states
     L_createStates();
 
-    // Schedule script accordingly
+    // Now we call the main update function. This is redundant since we set a schedule further below,
+    // however it is useful if we change something in the script and save it, so that we see the changes
+    // after 5 seconds and not after the time the schedule is set.
     // We use setTimeout() to execute 5s later and avoid error message on initial start if states not yet created.
+    setTimeout(function() { L_UpdateLog(); }, 5000);
+
+    // Schedule script accordingly.
+    // We execute 30 seconds later since we called the function right before.
     setTimeout(function() {
-//        L_UpdateLog(); // execute on start
         schedule(L_SCHEDULE, function () {  // apply schedule
            L_UpdateLog();
         });
-    }, 5000);
+    }, 30000);
 
     // Set current date to state if button is pressed
     for (var i = 0; i < L_FILTER.length; i++) {
         var strIDCleanFinal = L_STATE_PATH + '.' + 'log' + prepStateNameInclCapitalizeFirst(L_FILTER[i].id) + 'JSONclear';
-        on({id: strIDCleanFinal, change: "any"}, function(obj) {
+        on({id: strIDCleanFinal, change: "any", val: true}, function(obj) {
             var currentDate = new Date();
             setState(obj.id + 'DateTime', currentDate.toString());
         }); // warning on the left can be ignored, we need a function here...
@@ -292,6 +295,8 @@ function init() {
  * Main function. Process content of today's logfile (e.g. /opt/iobroker/log/iobroker.2018-07-19.log)
  */
 function L_UpdateLog() {
+
+    if (DEBUG_IGNORE_STATES) L_Log2('DEBUG_IGNORE_STATES is set to true!', "warn");
 
     // Path and filename to log file
     var strLogPathFinal = L_LOG_PATH;
@@ -400,8 +405,10 @@ function L_processLogAndSetToState(arrayLogInput) {
 
         // Get state contents of loop filter id and append it
         var strStateLogContent = getState(strStateFullPath).val;
-        if (L_IsValueEmptyNullUndefined(strStateLogContent) === false) {
-            strLoopLogContent = strLoopLogContent + strStateLogContent; // "\n" not needed, always added above
+        if (!DEBUG_IGNORE_STATES) {
+            if (L_IsValueEmptyNullUndefined(strStateLogContent) === false) {
+                strLoopLogContent = strLoopLogContent + strStateLogContent; // "\n" not needed, always added above
+            }
         }
 
         if (L_IsValueEmptyNullUndefined(strLoopLogContent) === false) {
