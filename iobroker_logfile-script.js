@@ -14,6 +14,7 @@
  * Support:             https://forum.iobroker.net/viewtopic.php?f=21&t=15514
  *
  * Change Log:
+ *  0.8 Mic - Fix: Script caused a "file not found" error if executed right at or shortly after midnight.
  *  0.7 Mic - Fix: States "...clearDateTime" will not get an initial date value on first script start,
  *                 also fix for "on({id: ".
  *  0.6 Mic + Put 0.5.1 BETA into stable
@@ -295,8 +296,10 @@ function init() {
  * Main function. Process content of today's logfile (e.g. /opt/iobroker/log/iobroker.2018-07-19.log)
  */
 function L_UpdateLog() {
-
+    
+    // A couple warnings
     if (DEBUG_IGNORE_STATES) L_Log2('DEBUG_IGNORE_STATES is set to true!', "warn");
+    if (L_LOG_FILENAME !== '') L_Log2('L_LOG_FILENAME is set: "' + L_LOG_FILENAME + '"', "warn"); 
 
     // Path and filename to log file
     var strLogPathFinal = L_LOG_PATH;
@@ -309,7 +312,15 @@ function L_UpdateLog() {
     var fs = require('fs');
     fs.readFile(strFullLogPath, 'utf8', function (err,data) {
         if (err) {
-            return L_Log2(err, 'error');
+            // At midnight, the script will use the new log file of the day.
+            // However, the server may not yet have it created, so we ignore the 'file not found error' for 3 hours. 
+            // This should be enough time for ioBroker until we get a log entry and therefore a log file.
+            if(L_IsTimeInRange('00:00:00', '03:00:00')) {
+                if (LOG_DEBUG) L_Log('Midnight or right after, so a log file of the new day does not exist yet');
+                return; // exit function
+            } else {
+                return L_Log2('Error when trying to read the log file, msg: ' + err, 'error'); // Exit function with error msg
+            }
         }
 
         // get log entries into array, these are separated by new line in the file...
@@ -441,7 +452,7 @@ function L_processLogAndSetToState(arrayLogInput) {
             myArrayJSON = myArrayJSON.slice(0, L_NO_OF_ENTRIES_JSON);
 
             // Sort ascending if desired
-            if (L_SORT_ORDER === 'A') {
+            if (!L_SORT_ORDER_DESC) {
                 myArray = myArray.reverse();
                 myArrayJSON = myArrayJSON.reverse();
             }
@@ -477,11 +488,13 @@ function L_processLogAndSetToState(arrayLogInput) {
                     var objectJSONentry = {}; // object (https://stackoverflow.com/a/13488998)
                     if (L_IsValueEmptyNullUndefined(L_FILTER[k].columns)) L_Log2('Columns not specified in L_FILTER', 'error');
                     // Prepare CSS
+                    var strCSS1, strCSS2;
+                    var strCSS1_level, strCSS2_level;
                     if (L_APPLY_CSS) {
-                        var strCSS1 = "<span class='log-" + arrSplitLogLine.level + "'>";
-                        var strCSS2 = '</span>';
-                        var strCSS1_level = strCSS1;
-                        var strCSS2_level = strCSS1;
+                        strCSS1 = "<span class='log-" + arrSplitLogLine.level + "'>";
+                        strCSS2 = '</span>';
+                        strCSS1_level = strCSS1;
+                        strCSS2_level = strCSS1;
                         if (L_APPLY_CSS_LIMITED_TO_LEVEL) {
                             strCSS1 = '';
                             strCSS2 = '';
@@ -858,3 +871,40 @@ function L_Log2(strMessage, strType) {
         log(strMsgFinal, "info");
     }
 }
+
+
+
+/*********************************************
+ * Checks wether the current date/time is within the range provided.
+ * Source: https://forum.iobroker.net/viewtopic.php?t=1072#p8484
+ * @param  string    strLower - a time as string, e.g. '20:00:00'
+ * @param  string    strUpper - a time as string, e.g. '22:30:00'
+ * @return boolean   true if current time is within range, false if not
+ ********************************************/
+function L_IsTimeInRange(strLower, strUpper) {
+    var now = new Date();
+    var lower = addTime(strLower);
+    var upper = addTime(strUpper);
+    var inRange = false;
+    if (upper > lower) {
+        // opens and closes in same day
+        inRange = (now >= lower && now <= upper) ? true : false;
+    } else {
+        // closes in the following day
+        inRange = (now >= upper && now <= lower) ? false : true;
+    }
+    return inRange;
+
+    // Additional function needed to get a date/time value of the current date with the time provided as string
+    function addTime(strTime) {
+        var time = strTime.split(':');
+        var dNewDate = new Date();
+        var d = new Date(dNewDate.getFullYear(), dNewDate.getMonth(), dNewDate.getDate());
+        d.setHours(time[0]);
+        d.setMinutes(time[1]);
+        d.setSeconds(time[2]);
+        return d;
+    }
+
+}
+
