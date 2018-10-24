@@ -14,6 +14,7 @@
  * Support:             https://forum.iobroker.net/viewtopic.php?f=21&t=15514
  *
  * Change Log:
+ *  0.8.1 Mic - Fix: L_SORT_ORDER_DESC was not defined (renamed constant name was not changed in config)
  *  0.8 Mic - Fix: Script caused a "file not found" error if executed right at or shortly after midnight.
  *  0.7 Mic - Fix: States "...clearDateTime" will not get an initial date value on first script start,
  *                 also fix for "on({id: ".
@@ -24,9 +25,9 @@
  *  0.5.1 BETA Mic + New States "Clear JSON log ..." and "Clear JSON log - Date/Time ...".
  *                   When the button "Clear JSON log" is pushed, the current date/time
  *                   will be set into the date/time state. Once refreshed
- *                   (per schedule in the script, e.g. after 2 minutes), the JSON 
+ *                   (per schedule in the script, e.g. after 2 minutes), the JSON
  *                   will be cleaned and display just newer logs.
- *                   Use Case: In vis, you can now add a button "clear log" or 
+ *                   Use Case: In vis, you can now add a button "clear log" or
  *                   "Mark as read". If you hit the button, the log will be
  *                   cleared and just new log items will be displayed.
  *                   *** THIS IS STILL BEING TESTED *** therefore a beta release...
@@ -42,15 +43,6 @@
  *  0.2  Mic - Bug fix: corrected wrong function name
  *  0.1  Mic * Initial release
  *
- * To Do:
- *  - Wenn z.B. Schedule auf alle 2 Minuten, dann fehlt das Log zwischen
- *    23:58 und 0:00, da ab 0:00 Uhr ein neues Logfile auf dem Server erstellt
- *    wird. Ab 0:00 + x Minuten (lt. Schedule) + Puffer ist also auch noch das
- *    Logfile vom Vortag mit auszulesen.
- *  - Log-Datum wird derzeit im Format "2018-07-22 12:45:02.769" erwartet. 
- *    Müsste das für andere Datumsformate anpassen. Umsetzung noch zu überlegen.
- *    Ggf. ist die Syntax des Datums über Linux-Rechner verfügbar. Oder über
- *    Konfiguration lösen. 
  *******************************************************************************/
 
 /*******************************************************************************
@@ -63,9 +55,6 @@ const L_STATE_PATH = 'javascript.'+ instance + '.' + 'mylog';
 // Der Standard-Pfad auf Raspberry: '/opt/iobroker/log/'.
 const L_LOG_PATH = '/opt/iobroker/log/';
 
-// Leer lassen! Nur setzen, falls ein eigener Filename für das Logfile verwendet wird
-const L_LOG_FILENAME = '';
-
 /*******************************************************************************
  * Konfiguration: Alle Logeinträge - Global
  ******************************************************************************/
@@ -73,9 +62,9 @@ const L_LOG_FILENAME = '';
 // Bitte nicht allzu viele behalten, denn das kostet Performance.
 const L_NO_OF_ENTRIES = 100;
 
-// Sortierung der Logeinträge: D für descending (absteigend, also neuester oben), oder A für ascending (aufsteigend, also ältester oben)
-// Empfohlen ist "D", damit neueste Einträge immer oben stehen.
-const L_SORT_ORDER = 'D';
+// Sortierung der Logeinträge: true für descending (absteigend, also neuester oben), oder false für ascending (aufsteigend, also ältester oben)
+// Empfohlen ist true, damit neueste Einträge immer oben stehen.
+const L_SORT_ORDER_DESC = true;
 
 // Wie oft sollen die Log-Datenpunkte aktualisiert werden? Benutze den "Cron"-Button oben rechts für komfortable Einstellung
 // Bitte nicht jede Sekunde laufen lassen, alle paar Minuten sollte locker reichen.
@@ -116,7 +105,7 @@ const L_NO_OF_ENTRIES_JSON = 60;
 // .log-error { color: red; }
 const L_APPLY_CSS = true;
 
-// L_APPLY_CSS wird nur für die Spalte "level" (also error, info) angewendet, aber nicht für die 
+// L_APPLY_CSS wird nur für die Spalte "level" (also error, info) angewendet, aber nicht für die
 // restlichen Spalten wie Datum, Log-Eintrag, etc.
 // Falls alle Zeilen formatiert werden sollen: auf false setzen.
 const L_APPLY_CSS_LIMITED_TO_LEVEL = true;
@@ -147,7 +136,7 @@ const L_APPLY_CSS_LIMITED_TO_LEVEL = true;
 //             werden entfernt, aber die restliche Zeile bleibt bestehen. Z.B.
 //             um unerwünschte Zeichenfolgen zu entfernen oder Log-Ausgaben
 //             zu kürzen.
-// columns:    Nur für JSON (für vis). 
+// columns:    Nur für JSON (für vis).
 //             Folgende Spalten gibt es: 'date','level','source','msg'
 //             Hier können einzelne Spalten entfernt oder die Reihenfolge
 //             verändert werden.
@@ -157,7 +146,7 @@ const L_APPLY_CSS_LIMITED_TO_LEVEL = true;
 // Bei den Filtern bitte beachten: Datenpunkt-Inhalte bei Änderung ggf. vorher
 // löschen, diese werden nicht nachträglich gefiltert.
 //
-// Die Filter-Einträge können natürlich beliebig geändert und erweitert werden, 
+// Die Filter-Einträge können natürlich beliebig geändert und erweitert werden,
 // bitte aber den Aufbau beibehalten.
 //
 const L_FILTER = [
@@ -214,7 +203,7 @@ const L_FILTER = [
   // Dabei sollen entweder Wetterwarnungen, Alarme, oder UFOs gemeldet werden.
   // Alles unter Windstärke "5 Bft" interessiert uns dabei nicht, daher haben
   // wir '0 Bft' bis '4 Bft' auf die Blackliste gesetzt.
-  // Außerdem entfernen wir von der Log-Zeile die Zeichenfolgen '****', '!!!!' 
+  // Außerdem entfernen wir von der Log-Zeile die Zeichenfolgen '****', '!!!!'
   // und 'ufo gesichtet', der Rest bleibt aber bestehen.
   // Zudem haben wir unter columns die Spaltenreihenfolge geändert. 'level'
   // herausgenommen, und Quelle ganz vorne.
@@ -225,7 +214,7 @@ const L_FILTER = [
     blacklist:   ['0 Bft', '1 Bft', '2 Bft', '3 Bft', '4 Bft'],
     clean:       ['****', '!!!!', 'ufo gesichtet'],
     columns:     ['level','date','msg'],
-  }, 
+  },
 
 ];
 
@@ -249,9 +238,12 @@ const LOG_INFO = false;
 // wie '2018-07-22 12:45:02.769  - info: javascript.0 Stop script script.js.ScriptAbc'
 const REGEX_LOG = /([0-9_.\-:\s]*)(\s+\- )(silly|debug|info|warn|error|)(: )([a-z0-9.\-]*)(\s)(.*)/g;
 
-// Debug: Falls auf true, dann werden die Datenpunkte nicht ausgelesen, sondern von 
+// Debug: Falls auf true, dann werden die Datenpunkte nicht ausgelesen, sondern von
 // der Log-Datei immer neu gesetzt.
 const DEBUG_IGNORE_STATES = false;
+
+// Leer lassen! Nur setzen, falls ein eigener Filename für das Logfile verwendet wird für Debug.
+const L_LOG_FILENAME = '';
 
 
 /*******************************************************************************
@@ -263,7 +255,7 @@ const DEBUG_IGNORE_STATES = false;
  */
 init();
 function init() {
- 
+
     // Create states
     L_createStates();
 
@@ -296,10 +288,10 @@ function init() {
  * Main function. Process content of today's logfile (e.g. /opt/iobroker/log/iobroker.2018-07-19.log)
  */
 function L_UpdateLog() {
-    
+
     // A couple warnings
     if (DEBUG_IGNORE_STATES) L_Log2('DEBUG_IGNORE_STATES is set to true!', "warn");
-    if (L_LOG_FILENAME !== '') L_Log2('L_LOG_FILENAME is set: "' + L_LOG_FILENAME + '"', "warn"); 
+    if (L_LOG_FILENAME !== '') L_Log2('L_LOG_FILENAME is set: "' + L_LOG_FILENAME + '"', "warn");
 
     // Path and filename to log file
     var strLogPathFinal = L_LOG_PATH;
@@ -313,7 +305,7 @@ function L_UpdateLog() {
     fs.readFile(strFullLogPath, 'utf8', function (err,data) {
         if (err) {
             // At midnight, the script will use the new log file of the day.
-            // However, the server may not yet have it created, so we ignore the 'file not found error' for 3 hours. 
+            // However, the server may not yet have it created, so we ignore the 'file not found error' for 3 hours.
             // This should be enough time for ioBroker until we get a log entry and therefore a log file.
             if(L_IsTimeInRange('00:00:00', '03:00:00')) {
                 if (LOG_DEBUG) L_Log('Midnight or right after, so a log file of the new day does not exist yet');
@@ -356,7 +348,7 @@ function L_UpdateLog() {
                 // We apply our filters.
                 /////////////////
                 if (L_IsValueEmptyNullUndefined(L_FILTER) === false) {
-                    
+
                     // Now let's iterate again over the filter array elements
                     // We check if both the "all" and "any" filters  apply. If yes, - and blacklist false - we add the log line.
                     for (var k = 0; k < L_FILTER.length; k++) {
@@ -437,16 +429,16 @@ function L_processLogAndSetToState(arrayLogInput) {
 
             // Separate ID for JSON
             var myArrayJSON = myArray;
-            
+
             // This is to clear the log
             // Let's remove elements if current date in state "logXXXJSONclearDateTime" is greater than log date.
             var strDateFromState = getState(strStateFullPath + 'JSONclearDateTime').val;
             if (L_IsValueEmptyNullUndefined(strDateFromState) === false) {
                 if (strDateFromState !== 0) { // we set it to 0 via vis widget if we want to clear the state
-                    myArrayJSON = L_clearArrayByDate(myArrayJSON, strDateFromState);              
+                    myArrayJSON = L_clearArrayByDate(myArrayJSON, strDateFromState);
                 }
             }
-            
+
             // Just keep the first x elements of the array
             myArray = myArray.slice(0, L_NO_OF_ENTRIES);
             myArrayJSON = myArrayJSON.slice(0, L_NO_OF_ENTRIES_JSON);
@@ -468,7 +460,7 @@ function L_processLogAndSetToState(arrayLogInput) {
             ///////////////////////////////
             // -2- JSON, with elements date and msg
             ///////////////////////////////
-      
+
             // Let's put together the JSON
             var jsonArr = [];
             for (var j = 0; j < myArrayJSON.length; j++) {
@@ -530,7 +522,7 @@ function L_processLogAndSetToState(arrayLogInput) {
             } else {
                 // Is empty here if for example L_clearArrayByDate had no hits
                 setState(strStateFullPath + 'JSON', '');
-                setState(strStateFullPath + 'JSONcount', 0);                
+                setState(strStateFullPath + 'JSONcount', 0);
             }
         } else {
             // No log available, so we clean it.
@@ -551,7 +543,7 @@ function L_clearArrayByDate(inputArray, strDate) {
     for (var lpLog of inputArray) {
         var dtLog = new Date(lpLog.substr(0,23));
         if (dtLog >= dtState) {
-            newArray.push(lpLog);            
+            newArray.push(lpLog);
         }
 
   }
@@ -638,7 +630,7 @@ function L_SplitLogLine(strLog, strRegex) {
             returnArray.level = m[3];
             returnArray.source = m[5];
             returnArray.message = m[7];
-        } 
+        }
     } while (m);
 
     // Now we check if we have valid entries we want
