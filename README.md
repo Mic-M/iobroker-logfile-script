@@ -13,8 +13,11 @@ Parses log file, applies filters, and sets states for visualization
 
 ## Changelog
 
+### 0.8.1 (24-Oct-2018)
+* (Mic-M) - Fix of issue #4: L_SORT_ORDER_DESC was not defined
+
 ### 0.8 (23-Oct-2018)
-* (Mic-M) - Fix: Script caused a "file not found" error if executed right at or shortly after midnight.
+* (Mic-M) - Fix of issue #2: Script caused a "file not found" error if executed right at or shortly after midnight.
 
 ### 0.7 (31-Jul-2018)
 * (Mic-M) - Fix: States "...clearDateTime" will not get an initial date value on first script start, also fix for "on({id: ".
