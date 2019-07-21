@@ -14,6 +14,7 @@
  * Support:             https://forum.iobroker.net/topic/13971/vorlage-log-datei-aufbereiten-f%C3%BCr-vis-javascript
  *
  * Change Log:
+ *  1.01alpha Mic  - fix: creating new file system log file only if not yet existing
  *  1.0alpha  Mic  - Entirely recoded to implement node-tail (https://github.com/lucagrulla/node-tail).
  *  ----------------------------------------------------------------------------------------------------
  *  0.8.1 Mic - Fix: L_SORT_ORDER_DESC was not defined (renamed constant name was not changed in config)
@@ -425,9 +426,16 @@ function startTailingProcess() {
     // Create a new log file. It will created if it is not yet existing.
     // This will avoid an error if right after midnight the log file is not yet there
     const fs = require('fs');
-    fs.writeFile(strFsFullPath, '', function(err) {
-        if(err) return log(err);
-    }); 
+    if (fs.existsSync(strFsFullPath)) {
+        // File is existing
+    } else {
+        // File is not existing, so we create it.
+        if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'Log file is not existing, so we need to create a blank file.');
+        fs.writeFile(strFsFullPath, '', function(err) {
+            if(err) return log(err);
+        }); 
+    }
+
     // Now start new tailing instance
     if(LOG_INFO) log('Start new Tail process. File path to current log: [' + strFsFullPath + ']');
     G_tail = new G_Tail(strFsFullPath, G_tailOptions);
