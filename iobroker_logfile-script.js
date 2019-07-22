@@ -14,8 +14,9 @@
  * Support:             https://forum.iobroker.net/topic/13971/vorlage-log-datei-aufbereiten-f%C3%BCr-vis-javascript
  *
  * Change Log:
- *  1.01alpha Mic  - fix: creating new file system log file only if not yet existing
- *  1.0alpha  Mic  - Entirely recoded to implement node-tail (https://github.com/lucagrulla/node-tail).
+ *  1.02 alpha  Mic  - fix restarting at 0:00 (note: restarting is needed due to log file name change)
+ *  1.01 alpha  Mic  - fix: creating new file system log file only if not yet existing
+ *  1.00 alpha  Mic  - Entirely recoded to implement node-tail (https://github.com/lucagrulla/node-tail).
  *  ----------------------------------------------------------------------------------------------------
  *  0.8.1 Mic - Fix: L_SORT_ORDER_DESC was not defined (renamed constant name was not changed in config)
  *  0.8 Mic - Fix: Script caused a "file not found" error if executed right at or shortly after midnight.
@@ -332,33 +333,23 @@ let G_Schedule; // being set later
 init();
 function init() {
     
-    // Just in case.
-    endTailingProcess();
-
     // Create our states, if not yet existing.
-    setTimeout(createLogStates, 2000);
+    createLogStates();
 
     // Subscribe on changes: Pressed button "clearJSON"
     setTimeout(subscribeClearJson, 4000);
 
-
-    // Start new Tail process
-    setTimeout(startTailingProcess, 5000);
-
-    // The main part of this script.
-    setTimeout(doIfNewLogEntry, 8000);
+    // Start main function
+    setTimeout(main, 3000);
 
     // Every midnight at 0:00, we have a new log file. So, we schedule accordingly.
     let strCron = '0 0 * * *' // At 00:00 every day.
     clearSchedule(G_Schedule);
     setTimeout(function(){
-        G_Schedule = schedule(strCron, restartTailingProcess);
+        G_Schedule = schedule(strCron, main);
     }, 20000);
 
-
 }
-
-
 
 
 /**
@@ -367,55 +358,68 @@ function init() {
  * It tailes the ioBroker log, so we get every new log entry as string.
  * Requires https://github.com/lucagrulla/node-tail
  */
-function doIfNewLogEntry() {
+function main() {
 
-    if (LOG_INFO) log('Start/continue monitoring ioBroker log...')
+    // First, we end the tailing. 
+    endTailingProcess();
 
-    G_tail.on('line', function(newLogEntry) {
-        // Check if we have DEBUG_IGNORE_STR in the new log line
-        if(! newLogEntry.includes(DEBUG_IGNORE_STR)) {
+    // Next, we start the tailing process.
+    setTimeout(startTailingProcess, 2500);
 
-            // Cleanse and apply blacklist
-            newLogEntry = cleanseLogLine(newLogEntry);
+    // Finally, we continue.
+    setTimeout(function() {
+    
+        if (LOG_INFO) log('Start/continue monitoring ioBroker log...')
 
-            if ( (! isLikeEmpty(newLogEntry)) && (newLogEntry.length > 30) ) { // Avoid log lines with just a few chars
+        G_tail.on('line', function(newLogEntry) {
+            // Check if we have DEBUG_IGNORE_STR in the new log line
+            if(! newLogEntry.includes(DEBUG_IGNORE_STR)) {
 
-                if (LOG_DEBUG) log (DEBUG_IGNORE_STR + '===============================================================');
-                if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'New Log Entry, Len (' + newLogEntry.length + '), content: [' + newLogEntry + ']');
+                // Cleanse and apply blacklist
+                newLogEntry = cleanseLogLine(newLogEntry);
 
-                // Apply the filters as set in LOG_FILTER and split up log levels into elements of an array
-                let logEntryFilteredArray = applyFilter(newLogEntry);
+                if ( (! isLikeEmpty(newLogEntry)) && (newLogEntry.length > 30) ) { // Avoid log lines with just a few chars
 
-                // Further process and finally set states with our results.
-                processLogArrayAndSetStates(logEntryFilteredArray);
+                    if (LOG_DEBUG) log (DEBUG_IGNORE_STR + '===============================================================');
+                    if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'New Log Entry, Len (' + newLogEntry.length + '), content: [' + newLogEntry + ']');
 
-                // That's it.
+                    // Apply the filters as set in LOG_FILTER and split up log levels into elements of an array
+                    let logEntryFilteredArray = applyFilter(newLogEntry);
 
-                // This is for debugging purposes, and it will log every new log entry once again. See DEBUG_EXTENDED option above.
-                if (DEBUG_EXTENDED) {
-                    if (! newLogEntry.includes(DEBUG_EXTENDED_STR)) { // makes sure no endless loop here.
-                        log(DEBUG_EXTENDED_STR + newLogEntry.substring(0, DEBUG_EXTENDED_NO_OF_CHARS));
+                    // Further process and finally set states with our results.
+                    processLogArrayAndSetStates(logEntryFilteredArray);
+
+                    // That's it.
+
+                    // This is for debugging purposes, and it will log every new log entry once again. See DEBUG_EXTENDED option above.
+                    if (DEBUG_EXTENDED) {
+                        if (! newLogEntry.includes(DEBUG_EXTENDED_STR)) { // makes sure no endless loop here.
+                            log(DEBUG_EXTENDED_STR + newLogEntry.substring(0, DEBUG_EXTENDED_NO_OF_CHARS));
+                        }
                     }
                 }
             }
-        }
-    });
+        });
 
-    G_tail.on('error', function(error) {
-        // Error Handling
-        log('Tail error', error);
-        if (error.includes('ENOENT: no such file or directory')) {
-            // It looks like the log file was deleted. So we restart process.
-            // Will also create a new log file if not existing.
-            restartTailingProcess();
-            log('Tail process re-started due to file/directory not found error. It will create a new log file if it has been deleted.', 'warn')
-        } else {
-            log('Tailing process ended by the log script due to this error.', 'warn');
-            endTailingProcess();
-        }
-    });
+        G_tail.on('error', function(error) {
+            // Error Handling
+            log('Tail error', error);
+            if (error.includes('ENOENT: no such file or directory')) {
+                // It looks like the log file was deleted. So we restart process.
+                // Will also create a new log file if not existing.
+                restartTailingProcess();
+                log('Tail process re-started due to file/directory not found error. It will create a new log file if it has been deleted.', 'warn')
+            } else {
+                log('Tailing process ended by the log script due to this error.', 'warn');
+                endTailingProcess();
+            }
+        });
+
+    }, 5000);
 
 }
+
+
 
 /**
  * Start new tailing process
@@ -443,7 +447,7 @@ function startTailingProcess() {
 }
 
 /************************
- * Restart Tail. We do this every midnight at 0:00.
+ * Restart Tail.
  ************************/
 function restartTailingProcess() {
     // End tailing
