@@ -14,6 +14,9 @@
  * Support:             https://forum.iobroker.net/topic/13971/vorlage-log-datei-aufbereiten-f%C3%BCr-vis-javascript
  *
  * Change Log:
+ *  1.1  Mic - 1. 1.0x script seems to work reliable per user feedback and my own test, so pushing into 1.1 stable.
+ *             2. New state '.logMostRecent': provides just the most recent log entry to work with "on /
+ *                subscribe" on this state and trigger actions accordingly.
  *  1.02 alpha  Mic  - fix restarting at 0:00 (note: restarting is needed due to log file name change)
  *  1.01 alpha  Mic  - fix: creating new file system log file only if not yet existing
  *  1.00 alpha  Mic  - Entirely recoded to implement node-tail (https://github.com/lucagrulla/node-tail).
@@ -315,9 +318,10 @@ const DEBUG_EXTENDED_NO_OF_CHARS = 120;
  * Ab hier nichts mehr ändern / Stop editing here!
  *************************************************************************************************************************/
 
-/****************************
- * Global variables.
- ****************************/
+/*************************************************************************************************************************
+ * Global variables
+ *************************************************************************************************************************/
+
 // This script requires tail. https://github.com/lucagrulla/node-tail
 let G_Tail = require('tail').Tail; // Please ignore the red wavy underline. The JavaScript editor does not recognize if node-tail is installed
 let G_tailOptions= {separator: /[\r]{0,1}\n/, fromBeginning: false}
@@ -326,10 +330,19 @@ let G_tail; // being set later
 // Schedule for every midnight. So not set at this point.
 let G_Schedule; // being set later
 
-/***************************
- * This is executed on every script (re)start.
- * We do some timing here with setTimeout() to avoid warnings like if states not yet exist, etc.
- ***************************/
+/*************************************************************************************************************************
+ * onStop - Being executed if this ioBroker Script stops. 
+ *************************************************************************************************************************/
+// This is to end the Tale. Not sure, if we indeed need it, but just in case...
+onStop(function myScriptStop () {
+    endTailingProcess();
+}, 0);
+
+
+/*************************************************************************************************************************
+ * init - This is executed on every script (re)start.
+ *************************************************************************************************************************/
+// We do some timing here with setTimeout() to avoid warnings like if states not yet exist, etc.
 init();
 function init() {
     
@@ -351,13 +364,9 @@ function init() {
 
 }
 
-
-/**
- * Main Function.
- * 
- * It tailes the ioBroker log, so we get every new log entry as string.
- * Requires https://github.com/lucagrulla/node-tail
- */
+/*************************************************************************************************************************
+ * Main Function. It tailes the ioBroker log, so we get every new log entry as string.
+ *************************************************************************************************************************/
 function main() {
 
     // First, we end the tailing. 
@@ -419,7 +428,9 @@ function main() {
 
 }
 
-
+/*************************************************************************************************************************
+ * Tailing functions
+ *************************************************************************************************************************/
 
 /**
  * Start new tailing process
@@ -475,70 +486,9 @@ function endTailingProcess() {
         }
 }
 
-
-/***************
- * Being executed if this ioBroker Script stops. 
- * This is to end the Tale. Not sure, if we indeed need it, but just in case...
- */
-onStop(function myScriptStop () {
-    endTailingProcess();
-}, 0);
-
-
-/**
- * Create all States we need at this time.
- */
-function createLogStates() {
-
-    let logCleanIDs = '';
-    let statesArray = [];
-    if (isLikeEmpty(LOG_FILTER) === false) {
-        for(let i = 0; i < LOG_FILTER.length; i++) {
-            if (LOG_FILTER[i].id !== '') {
-                let strIDClean = cleanseStatePath(LOG_FILTER[i].id);
-                logCleanIDs += ((logCleanIDs === '') ? '' : '; ') + strIDClean;
-
-                statesArray.push({ id:'log' + strIDClean + '.log', name:'Filtered Log - ' + strIDClean, type:"string", role: "state", def: ""});
-                statesArray.push({ id:'log' + strIDClean + '.logJSON', name:'Filtered Log - ' + strIDClean + ' - JSON', type:"string", role: "state", def: ""});
-                statesArray.push({ id:'log' + strIDClean + '.logJSONcount', name:'Filtered Log - Count of JSON ' + strIDClean, role: "state", type:"number", def: 0});
-                statesArray.push({ id:'log' + strIDClean + '.clearJSON', name:'Clear JSON log ' + strIDClean, role: "button", type:"boolean", def: false});
-                statesArray.push({ id:'log' + strIDClean + '.clearJSONtime', name:'Clear JSON log - Date/Time ' + strIDClean, role: "state", type:"string", def: ''});
-            }
-        }
-        if (LOG_DEBUG) log('createLogStates(): Clean IDs: ' + logCleanIDs);
-    }
-
-    for (let s=0; s < statesArray.length; s++) {
-
-        createState(LOG_STATE_PATH + '.' + statesArray[s].id, {
-            'name': statesArray[s].name,
-            'desc': statesArray[s].name,
-            'type': statesArray[s].type,
-            'read': true,
-            'write': true,
-            'role': statesArray[s].role,
-            'def': statesArray[s].def,
-        });
-    }
-}
-
-
-/**
- * Cleanse the log line
- * @param {string}   logLine    The log line to be cleansed.
- * @return {string}             The cleaned log line
- */
-function cleanseLogLine(logLine) {
-    let logLineResult = logLine.replace(/\u001b\[.*?m/g, ''); // Remove color escapes - https://stackoverflow.com/questions/25245716/remove-all-ansi-colors-styles-from-strings
-    if (logLineResult.substr(0,9) === 'undefined') logLineResult = logLineResult.substr(9,99999); // sometimes, a log line starts with the term "undefined", so we remove it.
-    logLineResult = logLineResult.replace(/\s\s+/g, ' '); // Remove white space, tab stops, new line
-    if(strMatchesTerms(logLineResult, BLACKLIST_GLOBAL, 'blacklist')) logLineResult = ''; // Check against global blacklist
-
-
-    return logLineResult;
-}
-
-
+/*************************************************************************************************************************
+ * Filtering
+ *************************************************************************************************************************/
 
 /**
  * This function applies the filters as set in LOG_FILTER.
@@ -584,16 +534,19 @@ function applyFilter(strLogEntry) {
     return logArrayProcessed;
 }
 
+/*************************************************************************************************************************
+ * Further processing
+ *************************************************************************************************************************/
 
-/************************************************************************************************
+/**
  * Further processes the log array and set states accordingly.
  * 
  * @param                     arrayLogInput     Either the Array of the log input, or '[REBUILD_LOG_STATES]' if
  *                            you just want to rebuild without adding a new log line (for example
  *                            for Json clear date/time)
  *                            Array is like: ['info':'logtext', 'error':'logtext'] etc.
- * return: none
- ************************************************************************************************/
+ * return: function does not return a value.
+ **/
 function processLogArrayAndSetStates(arrayLogInput) {
 
     let justRebuild = (arrayLogInput === '[REBUILD_LOG_STATES]') ? true : false;
@@ -628,7 +581,7 @@ function processLogArrayAndSetStates(arrayLogInput) {
             if (justRebuild) {
                 // Not adding new log line, we just rebuild so take the existing log
                 lpNewFinalLog = strCurrentStateLog;
-                if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'Just rebuilding log, no new log line to be added. Loop Filter ID: [' + lpFilterId + '], lpNewLogLine: [' + lpNewLogLine + ']');
+                log (DEBUG_IGNORE_STR + 'Just rebuilding log, no new log line to be added. Loop Filter ID: [' + lpFilterId + '], lpNewLogLine: [' + lpNewLogLine + ']');
 
             } else {
 
@@ -672,6 +625,9 @@ function processLogArrayAndSetStates(arrayLogInput) {
             lpNewFinalLogArray = lpNewFinalLogArray.slice(0, LOG_NO_OF_ENTRIES);
             lpNewFinalLogArrayJSON = lpNewFinalLogArrayJSON.slice(0, JSON_NO_ENTRIES);
 
+            // Get just the most recent log entry into string
+            let lpMostRecent = lpNewFinalLogArray[0];
+
             // Sort ascending if desired
             if (!L_SORT_ORDER_DESC) {
                 lpNewFinalLogArray = lpNewFinalLogArray.reverse();
@@ -681,7 +637,14 @@ function processLogArrayAndSetStates(arrayLogInput) {
             // ** Finally set the states
 
             ///////////////////////////////
-            // -1- Full Log, String, separated by "\n"
+            // -1- Just the most recent log entry in separate state
+            ///////////////////////////////
+            let lpAarrSplitLogLine = splitLogLineIntoArray(lpMostRecent, REGEX_LOG);
+            // We just use level and message, date/time would be the same as state's time stamp.
+            setState(lpStatePath1stPart + '.logMostRecent', lpAarrSplitLogLine.level + ': ' + lpAarrSplitLogLine.message);
+
+            ///////////////////////////////
+            // -2- Full Log, String, separated by "\n"
             ///////////////////////////////
 
             let strResult = lpNewFinalLogArray.join("\n");
@@ -689,7 +652,7 @@ function processLogArrayAndSetStates(arrayLogInput) {
             setState(lpStatePath1stPart + '.log', strResult);
             
             ///////////////////////////////
-            // -2- JSON, with elements date and msg
+            // -3- JSON, with elements date and msg
             ///////////////////////////////
       
             // Let's put together the JSON
@@ -806,6 +769,23 @@ function formatLogDateStr(strDate, format) {
 }
 
 /**
+ * Cleanse the log line
+ * @param {string}   logLine    The log line to be cleansed.
+ * @return {string}             The cleaned log line
+ */
+function cleanseLogLine(logLine) {
+    let logLineResult = logLine.replace(/\u001b\[.*?m/g, ''); // Remove color escapes - https://stackoverflow.com/questions/25245716/remove-all-ansi-colors-styles-from-strings
+    if (logLineResult.substr(0,9) === 'undefined') logLineResult = logLineResult.substr(9,99999); // sometimes, a log line starts with the term "undefined", so we remove it.
+    logLineResult = logLineResult.replace(/\s\s+/g, ' '); // Remove white space, tab stops, new line
+    if(strMatchesTerms(logLineResult, BLACKLIST_GLOBAL, 'blacklist')) logLineResult = ''; // Check against global blacklist
+
+
+    return logLineResult;
+}
+
+
+
+/**
  * Sorts the log array by date. We expect the first 23 chars of each element being a date in string format.
  * @param {array} inputArray       Array to process
  * @param {string}  order          'asc' or 'desc' for ascending or descending order
@@ -904,7 +884,43 @@ function clearJsonByDate(inputArray, strDate) {
 }
 
 
+/**
+ * Create all States we need at this time.
+ */
+function createLogStates() {
 
+    let logCleanIDs = '';
+    let statesArray = [];
+    if (isLikeEmpty(LOG_FILTER) === false) {
+        for(let i = 0; i < LOG_FILTER.length; i++) {
+            if (LOG_FILTER[i].id !== '') {
+                let strIDClean = cleanseStatePath(LOG_FILTER[i].id);
+                logCleanIDs += ((logCleanIDs === '') ? '' : '; ') + strIDClean;
+
+                statesArray.push({ id:'log' + strIDClean + '.log', name:'Filtered Log - ' + strIDClean, type:"string", role: "state", def: ""});
+                statesArray.push({ id:'log' + strIDClean + '.logJSON', name:'Filtered Log - ' + strIDClean + ' - JSON', type:"string", role: "state", def: ""});
+                statesArray.push({ id:'log' + strIDClean + '.logJSONcount', name:'Filtered Log - Count of JSON ' + strIDClean, role: "state", type:"number", def: 0});
+                statesArray.push({ id:'log' + strIDClean + '.clearJSON', name:'Clear JSON log ' + strIDClean, role: "button", type:"boolean", def: false});
+                statesArray.push({ id:'log' + strIDClean + '.clearJSONtime', name:'Clear JSON log - Date/Time ' + strIDClean, role: "state", type:"string", def: ''});
+                statesArray.push({ id:'log' + strIDClean + '.logMostRecent', name:'Just the most recent log entry' + strIDClean, role: "state", type:"string", def: ''});
+            }
+        }
+        if (LOG_DEBUG) log('createLogStates(): Clean IDs: ' + logCleanIDs);
+    }
+
+    for (let s=0; s < statesArray.length; s++) {
+
+        createState(LOG_STATE_PATH + '.' + statesArray[s].id, {
+            'name': statesArray[s].name,
+            'desc': statesArray[s].name,
+            'type': statesArray[s].type,
+            'read': true,
+            'write': true,
+            'role': statesArray[s].role,
+            'def': statesArray[s].def,
+        });
+    }
+}
 
 
 /*************************************************************************************************************************
