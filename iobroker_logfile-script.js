@@ -14,6 +14,7 @@
  * Support:             https://forum.iobroker.net/topic/13971/vorlage-log-datei-aufbereiten-f%C3%BCr-vis-javascript
  *
  * Change Log:
+ *  1.2  Mic - Fixed issue #6 (Button javascript.0.Log-Script.logXxxx.clearJSON not working reliably)
  *  1.1  Mic - 1. 1.0x script seems to work reliable per user feedback and my own test, so pushing into 1.1 stable.
  *             2. New state '.logMostRecent': provides just the most recent log entry to work with "on /
  *                subscribe" on this state and trigger actions accordingly.
@@ -105,11 +106,11 @@ const L_SORT_ORDER_DESC = true;
  *    sondern nur alle neu hinzugefügten Log-Einträge ab Speichern des Scripts werden berücksichtigt.
  */
 const BLACKLIST_GLOBAL = [
-    '<==Disconnect system.user.admin from ::ffff:', 
+    '<==Disconnect system.user.admin from ::ffff:', // web.0 Adapter
     'system.adapter.ical.0 terminated with code 0 (OK)', 
-    '', 
-    '', 
-    '', 
+    '',
+    '',
+    '',
     '',     
 ];
 
@@ -248,8 +249,8 @@ const LOG_FILTER = [
 // Datumsformat für JSON Log. Z.B. volles z.B. Datum mit 'yyyy-mm-dd HH:MM:SS' oder nur Uhrzeit mit "HH:MM:SS". Die Platzhalter yyyy, mm, dd usw.
 // werden jeweils ersetzt. yyyy = Jahr, mm = Monat, dd = Tag, HH = Stunde, MM = Minute, SS = Sekunde. Auf Groß- und Kleinschreibung achten!
 // Die Verbinder (-, :, Leerzeichen, etc.) können im Prinzip frei gewählt werden.
-// Beispiele: 'HH:MM:SS' für 19:37:25, 'HH:MM' für 19:37, 'mm.dd HH:MM' für '25.07. 19:37'
-const JSON_DATE_FORMAT = 'HH:MM:SS';
+// Beispiele: 'HH:MM:SS' für 19:37:25, 'HH:MM' für 19:37, 'dd.mm. HH:MM' für '25.07. 19:37'
+const JSON_DATE_FORMAT = 'dd.mm. HH:MM';
 
 // Max. Anzahl Zeichen der Log-Meldung im JSON Log.
 const JSON_LEN = 100;
@@ -318,6 +319,8 @@ const DEBUG_EXTENDED_NO_OF_CHARS = 120;
  * Ab hier nichts mehr ändern / Stop editing here!
  *************************************************************************************************************************/
 
+
+
 /*************************************************************************************************************************
  * Global variables
  *************************************************************************************************************************/
@@ -353,7 +356,7 @@ function init() {
     setTimeout(subscribeClearJson, 4000);
 
     // Start main function
-    setTimeout(main, 3000);
+    setTimeout(main, 5000);
 
     // Every midnight at 0:00, we have a new log file. So, we schedule accordingly.
     let strCron = '0 0 * * *' // At 00:00 every day.
@@ -363,6 +366,7 @@ function init() {
     }, 20000);
 
 }
+
 
 /*************************************************************************************************************************
  * Main Function. It tailes the ioBroker log, so we get every new log entry as string.
@@ -581,7 +585,7 @@ function processLogArrayAndSetStates(arrayLogInput) {
             if (justRebuild) {
                 // Not adding new log line, we just rebuild so take the existing log
                 lpNewFinalLog = strCurrentStateLog;
-                log (DEBUG_IGNORE_STR + 'Just rebuilding log, no new log line to be added. Loop Filter ID: [' + lpFilterId + '], lpNewLogLine: [' + lpNewLogLine + ']');
+                log (DEBUG_IGNORE_STR + 'Rebuilding only: [' + lpFilterId + '], lpNewLogLine: [' + lpNewLogLine + ']');
 
             } else {
 
@@ -596,7 +600,7 @@ function processLogArrayAndSetStates(arrayLogInput) {
             }
         }
 
-        if ( (! isLikeEmpty(lpNewFinalLog)) && (! isLoopItemEmpty) ) {
+        if ( ( (! isLikeEmpty(lpNewFinalLog)) && (! isLoopItemEmpty) ) || justRebuild ) {
 
             // Convert to array for easier handling
             let lpNewFinalLogArray = lpNewFinalLog.split(/\r?\n/);
@@ -613,13 +617,8 @@ function processLogArrayAndSetStates(arrayLogInput) {
             // We need a separate array for JSON
             let lpNewFinalLogArrayJSON = lpNewFinalLogArray;
 
-            // Let's remove elements if current date in state ".clearJSONtime" is greater than log date.
-            let strTimeFromState = getState(lpStatePath1stPart + '.clearJSONtime').val;
-            if (! isLikeEmpty(strTimeFromState)) {
-                if (strTimeFromState !== 0) { // we set it to 0 via vis widget if we want to clear the state
-                    lpNewFinalLogArrayJSON = clearJsonByDate(lpNewFinalLogArrayJSON, strTimeFromState);              
-                }
-            }
+            // Let's remove elements if time of when button '.clearJSON' was pressed is greater than log date.
+            lpNewFinalLogArrayJSON = clearJsonByDate(lpNewFinalLogArrayJSON, lpStatePath1stPart + '.clearJSON');              
 
             // Just keep the first x elements of the array
             lpNewFinalLogArray = lpNewFinalLogArray.slice(0, LOG_NO_OF_ENTRIES);
@@ -730,14 +729,14 @@ function subscribeClearJson() {
         let lpStateFirstPart = LOG_STATE_PATH + '.log' + lpFilterId;
         logSubscribe += ( (logSubscribe === '') ? '' : ', ') + lpFilterId;
         on({id: lpStateFirstPart + '.clearJSON', change: 'any', val: true}, function(obj) {
-            // Set state
-            if (LOG_DEBUG) log('State button [' + obj.id + '] was pressed.');
-            let currentDate = new Date();
-            setState(obj.id + 'time', currentDate.toString());
-            // Rebuild
-            setTimeout(function() {
-                processLogArrayAndSetStates('[REBUILD_LOG_STATES]');
-            }, 1000); 
+            let stateBtnPth = obj.id // e.g. [javascript.0.Log-Script.logInfo.clearJSON]
+            let firstPart = stateBtnPth.substring(0, stateBtnPth.length-10); // get first part of obj.id, like "javascript.0.Log-Script.logInfo"
+            let filterID = firstPart.slice(firstPart.lastIndexOf('.') + 1); // gets the filter id, like "logInfo"
+            if (LOG_DEBUG) log(DEBUG_IGNORE_STR + 'Clear JSON states for [' + filterID + '].');
+            // We clear the according JSON states
+            setState(firstPart + '.logJSON', '[]');
+            setState(firstPart + '.logJSONcount', 0);
+
         });
     }
     if (LOG_DEBUG) log('Subscribing to Clear JSON Buttons: ' + logSubscribe)
@@ -867,22 +866,24 @@ function getCurrentFullFsLogPath() {
 }
 
 /**
- * Clear array: if strDate is greater or equal than log date, we remove the entire log entry
+ * Clear array: if stateForTimeStamp is greater or equal than log date, we remove the entire log entry
+ * @param {array} inputArray     Array of log entries
+ * @param {string} stateForTimeStamp     state of which we need the time stamp
+ * @return {array} cleaned log
  */
-function clearJsonByDate(inputArray, strDate) {
-    let dtState = new Date(strDate); // the date provided from the state
+function clearJsonByDate(inputArray, stateForTimeStamp) {
+    let dtState = new Date(getState(stateForTimeStamp).ts);
+    if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'Time of last change of state [' + stateForTimeStamp + ']: ' + dtState);
 
     let newArray = [];
     for (let lpLog of inputArray) {
         let dtLog = new Date(lpLog.substr(0,23));
-        if (dtLog >= dtState) {
+        if (dtLog.getTime() >= dtState.getTime()) {
             newArray.push(lpLog);            
         }
-
   }
   return newArray;
 }
-
 
 /**
  * Create all States we need at this time.
@@ -891,18 +892,28 @@ function createLogStates() {
 
     let logCleanIDs = '';
     let statesArray = [];
-    if (isLikeEmpty(LOG_FILTER) === false) {
+    if (! isLikeEmpty(LOG_FILTER)) {
         for(let i = 0; i < LOG_FILTER.length; i++) {
             if (LOG_FILTER[i].id !== '') {
-                let strIDClean = cleanseStatePath(LOG_FILTER[i].id);
-                logCleanIDs += ((logCleanIDs === '') ? '' : '; ') + strIDClean;
+                let lpIDClean = cleanseStatePath(LOG_FILTER[i].id);
+                logCleanIDs += ((logCleanIDs === '') ? '' : '; ') + lpIDClean;
 
-                statesArray.push({ id:'log' + strIDClean + '.log', name:'Filtered Log - ' + strIDClean, type:"string", role: "state", def: ""});
-                statesArray.push({ id:'log' + strIDClean + '.logJSON', name:'Filtered Log - ' + strIDClean + ' - JSON', type:"string", role: "state", def: ""});
-                statesArray.push({ id:'log' + strIDClean + '.logJSONcount', name:'Filtered Log - Count of JSON ' + strIDClean, role: "state", type:"number", def: 0});
-                statesArray.push({ id:'log' + strIDClean + '.clearJSON', name:'Clear JSON log ' + strIDClean, role: "button", type:"boolean", def: false});
-                statesArray.push({ id:'log' + strIDClean + '.clearJSONtime', name:'Clear JSON log - Date/Time ' + strIDClean, role: "state", type:"string", def: ''});
-                statesArray.push({ id:'log' + strIDClean + '.logMostRecent', name:'Just the most recent log entry' + strIDClean, role: "state", type:"string", def: ''});
+                statesArray.push({ id:'log' + lpIDClean + '.log', name:'Filtered Log - ' + lpIDClean, type:"string", role: "state", def: ""});
+                statesArray.push({ id:'log' + lpIDClean + '.logJSON', name:'Filtered Log - ' + lpIDClean + ' - JSON', type:"string", role: "state", def: ""});
+                statesArray.push({ id:'log' + lpIDClean + '.logJSONcount', name:'Filtered Log - Count of JSON ' + lpIDClean, role: "state", type:"number", def: 0});
+                statesArray.push({ id:'log' + lpIDClean + '.clearJSON', name:'Clear JSON log ' + lpIDClean, role: "button", type:"boolean", def: false});
+                statesArray.push({ id:'log' + lpIDClean + '.logMostRecent', name:'Just the most recent log entry' + lpIDClean, role: "state", type:"string", def: ''});
+
+                // Backward compatibility & cleanup: removing states not needed
+                // State .clearJSONtime was removed with script version 1.2 onwards as we use now time stamp of button '.clearJSON'.
+                let lpRetiredState = LOG_STATE_PATH + '.log' + lpIDClean + '.clearJSONtime';
+                if (isState(lpRetiredState, true))  {
+                    deleteState(lpRetiredState);
+                    if (LOG_INFO) log('Remove retired state: ' + lpRetiredState);
+                }
+
+
+
             }
         }
         if (LOG_DEBUG) log('createLogStates(): Clean IDs: ' + logCleanIDs);
@@ -921,6 +932,11 @@ function createLogStates() {
         });
     }
 }
+
+
+
+
+
 
 
 /*************************************************************************************************************************
@@ -1076,3 +1092,29 @@ function strMatchesTerms(strInput, arrayTerms, type) {
         }
     }
 }
+
+/**
+ * Checks if a a given state or part of state is existing.
+ * This is a workaround, as getObject() or getState() throw warnings in the log.
+ * Set strict to true if the state shall match exactly. If it is false, it will add a wildcard * to the end.
+ * See: https://forum.iobroker.net/topic/11354/
+ * @param {string}    strStatePath     Input string of state, like 'javas-cript.0.switches.Osram.Bedroom'
+ * @param {boolean}   [strict=false]   Optional: if true, it will work strict, if false, it will add a wildcard * to the end of the string
+ * @return {boolean}                   true if state exists, false if not
+ */
+function isState(strStatePath, strict) {
+    let mSelector;
+    if (strict) {
+        mSelector = $('state[id=' + strStatePath + '$]');
+    } else {
+        mSelector = $('state[id=' + strStatePath + ']');
+    }
+    if (mSelector.length > 0) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+
+
