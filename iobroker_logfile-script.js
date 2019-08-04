@@ -15,6 +15,7 @@
  *
  * Change Log:
  *  1.4  Mic + New option MERGE_LOGLINES_TXT for an individual (e.g. localized) string other than 'entries'.
+             - Fix JSON span class closing
  *  1.3  Mic + New option MERGE_LOGLINES_ACTIVE: Merge Loglines with same log message to only one line and adds leading
  *             '[123 entries]' to log message.
  *  1.2  Mic - Fixed issue #6 (Button javascript.0.Log-Script.logXxxx.clearJSON not working reliably)
@@ -702,7 +703,7 @@ function processLogArrayAndSetStates(arrayLogInput) {
                         strCSS1 = "<span class='log-" + arrSplitLogLine.level + "'>";
                         strCSS2 = '</span>';
                         strCSS1_level = strCSS1;
-                        strCSS2_level = strCSS1;
+                        strCSS2_level = strCSS2;
                         if (JSON_APPLY_CSS_LIMITED_TO_LEVEL) {
                             strCSS1 = '';
                             strCSS2 = '';
