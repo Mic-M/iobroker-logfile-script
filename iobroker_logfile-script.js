@@ -14,15 +14,16 @@
  * Support:             https://forum.iobroker.net/topic/13971/vorlage-log-datei-aufbereiten-f%C3%BCr-vis-javascript
  *
  * Change Log:
- *  1.3  Mic - New option MERGE_LOGLINES: Merge Loglines with same log message to only one line and adds leading
+ *  1.4  Mic + New option MERGE_LOGLINES_TXT for an individual (e.g. localized) string other than 'entries'.
+ *  1.3  Mic + New option MERGE_LOGLINES_ACTIVE: Merge Loglines with same log message to only one line and adds leading
  *             '[123 entries]' to log message.
  *  1.2  Mic - Fixed issue #6 (Button javascript.0.Log-Script.logXxxx.clearJSON not working reliably)
- *  1.1  Mic - 1. 1.0x script seems to work reliable per user feedback and my own test, so pushing into 1.1 stable.
- *             2. New state '.logMostRecent': provides just the most recent log entry to work with "on /
- *                subscribe" on this state and trigger actions accordingly.
+ *  1.1  Mic + 1. 1.0x script seems to work reliable per user feedback and my own test, so pushing into 1.1 stable.
+ *           + New state '.logMostRecent': provides just the most recent log entry to work with "on /
+ *             subscribe" on this state and trigger actions accordingly.
  *  1.02 alpha  Mic  - fix restarting at 0:00 (note: restarting is needed due to log file name change)
  *  1.01 alpha  Mic  - fix: creating new file system log file only if not yet existing
- *  1.00 alpha  Mic  - Entirely recoded to implement node-tail (https://github.com/lucagrulla/node-tail).
+ *  1.00 alpha  Mic  + Entirely recoded to implement node-tail (https://github.com/lucagrulla/node-tail).
  *  ----------------------------------------------------------------------------------------------------
  *  0.8.1 Mic - Fix: L_SORT_ORDER_DESC was not defined (renamed constant name was not changed in config)
  *  0.8 Mic - Fix: Script caused a "file not found" error if executed right at or shortly after midnight.
@@ -110,19 +111,24 @@ const L_SORT_ORDER_DESC = true;
 const BLACKLIST_GLOBAL = [
     '<==Disconnect system.user.admin from ::ffff:', // web.0 Adapter
     'system.adapter.ical.0 terminated with code 0 (OK)', 
-    '',
-    '',
-    '',
-    '',     
+    'bring.0 Cannot get translations: RequestError',
+    ' reconnected. Old secret ', // Sonoff
+    'Popup-News readed...', // info.0 Adapter
+    '[warn] Projects disabled : set editorTheme.projects.enabled=true to enable', // see https://forum.iobroker.net/topic/12260/
+	'',
+	'',
 ];
 
 /**
  * Gleiche Logeinträge zusammenfassen:
- * Falls auf true gesetzt, so werden mehrere Logeinträge, die immer wieder auftauchen, jeweils entfernt und nur der letzte
- * angezeigt mit vorangestelltem [XXX entries], wo XXX die Anzahl der Logeinträge ist.
+ * Falls MERGE_LOGLINES_ACTIVE auf true gesetzt, so werden mehrere Logeinträge, die immer wieder auftauchen, 
+ * jeweils entfernt und nur der letzte angezeigt mit vorangestelltem [XXX entries], wo XXX die Anzahl der Logeinträge ist.
  * Falls man das nicht möchte: auf false setzen.
+ * In MERGE_LOGLINES_TXT kann ein anderes Wort eingetragen werden, z.B. 'Einträge', damit [XXX Einträge] vorangestellt wird.
+ * HINWEIS: Falls MERGE_LOGLINES_TXT geändert wird: bitte alle Datenpunkte des Scripts löschen und dann Script neu starten.
  */
-const MERGE_LOGLINES = false;
+const MERGE_LOGLINES_ACTIVE = true;
+const MERGE_LOGLINES_TXT = 'Einträge';  // English default: 'entries'
 
 
 /*******************************************************************************
@@ -309,12 +315,12 @@ const DEBUG_CUSTOM_FILENAME = '';
 // Regex für die Aufteilung des Logs in 1-Datum/Zeit, 3-Level, 5-Quelle und 7-Logtext.
 // Ggf. anzupassen bei anderem Datumsformat im Log. Wir erwarten ein Format
 // wie z.B.: '2018-07-22 12:45:02.769  - info: javascript.0 Stop script script.js.ScriptAbc'
+// Da als String, wurden alle Backslashes "\" mit einem zweiten Backslash escaped.
 const LOG_PATT =  '([0-9_.\\-:\\s]*)(\\s+\\- )(silly|debug|info|warn|error|)(: )([a-z0-9.\\-]*)(\\s)(.*)';
 
 // Debug: Ignore. Wenn dieses String in der Logzeile enthalten ist, dann ignorieren wir es.
 // Dient dazu, dass wir während des Scripts ins Log schreiben können, ohne dass das dieses Script berücksichtigt.
 const DEBUG_IGNORE_STR = '[LOGSCRIPT_IGNORE]'; // Muss ein  individuelles String sein. Sonst gibt es ggf. eine Endlos-Schleife.
-
 
 
 // Debug: Prüfen, ob jede Logzeile erfasst wird, in dem wir diese direkt danach noch mal ins Log schreiben.
@@ -333,8 +339,13 @@ const DEBUG_EXTENDED_NO_OF_CHARS = 120;
 
 
 /*************************************************************************************************************************
- * Global variables
+ * Global variables and constants
  *************************************************************************************************************************/
+
+// Merge loglines: define pattern (and escape the merge text)
+// We added an additional backslash '\' to each backslash as these need to be escaped.
+const MERGE_REGEX_PATT = '^\\[(\\d+)\\s' + escapeRegExp(MERGE_LOGLINES_TXT) + '\\]\\s(.*)';
+
 
 // This script requires tail. https://github.com/lucagrulla/node-tail
 let G_Tail = require('tail').Tail; // Please ignore the red wavy underline. The JavaScript editor does not recognize if node-tail is installed
@@ -626,7 +637,7 @@ function processLogArrayAndSetStates(arrayLogInput) {
             lpNewFinalLogArray = sortLogArrayByDate(lpNewFinalLogArray, 'desc');
 
             // Merge Loglines if multiple values and add leading '[123 entries]' to log message
-            if (MERGE_LOGLINES) mergeLogLines(lpNewFinalLogArray);
+            if (MERGE_LOGLINES_ACTIVE) mergeLogLines(lpNewFinalLogArray);
 
             // We need a separate array for JSON
             let lpNewFinalLogArrayJSON = lpNewFinalLogArray;
@@ -914,7 +925,7 @@ function mergeLogLines(logArray) {
             logArray = arrayRemoveElementsByValue(logArray, lpMostRctSplit.message);
 
             // Rebuild new log line and add the '[123 entries]'
-            logMostRecent = logLineMerge([lpMostRctSplit.datetime, lpMostRctSplit.level, lpMostRctSplit.source, '[' + (lineCounter + 1) + ' entries] ' + lpMostRctSplit.message]);
+            logMostRecent = logLineMerge([lpMostRctSplit.datetime, lpMostRctSplit.level, lpMostRctSplit.source, '[' + (lineCounter + 1) + ' ' + MERGE_LOGLINES_TXT + '] ' + lpMostRctSplit.message]);
             logArray.unshift(logMostRecent); // unshift adds an element at the beginning of an array
         }
     }
@@ -926,9 +937,10 @@ function mergeLogLines(logArray) {
      * @return {number}   returns the number 123 from '[123 entries]' if any match, or -1 if not found
      */
     function checkForMultiEntry(strInput) {
-        //const REGEXP_MULTI = /^(\[\d+\sentries\])(.*)/i;
-        const REGEXP = /^\[(\d+)\sentries\]\s(.*)/;
-        let matches = REGEXP.exec(strInput);
+
+        // Get RegEx ready
+        let mRegEx = new RegExp(MERGE_REGEX_PATT);
+        let matches = mRegEx.exec(strInput);
         if (matches === null) {
             return -1;
         } else {
@@ -1251,5 +1263,15 @@ function arrayRemoveElementsByValue(arr, valRemove, exact) {
         }
     }
     return arr;
+}
+
+/**
+ * Escapes a string for use in RegEx as (part of) pattern
+ * Source: https://stackoverflow.com/questions/3446170/escape-string-for-use-in-javascript-regex
+ * @param {string} inputStr  The input string to be escaped
+ * @return {string}  The escaped string
+ */
+function escapeRegExp(inputStr) {
+    return inputStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
 }
 
