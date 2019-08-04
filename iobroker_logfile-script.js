@@ -14,6 +14,8 @@
  * Support:             https://forum.iobroker.net/topic/13971/vorlage-log-datei-aufbereiten-f%C3%BCr-vis-javascript
  *
  * Change Log:
+ *  1.3  Mic - New option MERGE_LOGLINES: Merge Loglines with same log message to only one line and adds leading
+ *             '[123 entries]' to log message.
  *  1.2  Mic - Fixed issue #6 (Button javascript.0.Log-Script.logXxxx.clearJSON not working reliably)
  *  1.1  Mic - 1. 1.0x script seems to work reliable per user feedback and my own test, so pushing into 1.1 stable.
  *             2. New state '.logMostRecent': provides just the most recent log entry to work with "on /
@@ -113,6 +115,15 @@ const BLACKLIST_GLOBAL = [
     '',
     '',     
 ];
+
+/**
+ * Gleiche Logeinträge zusammenfassen:
+ * Falls auf true gesetzt, so werden mehrere Logeinträge, die immer wieder auftauchen, jeweils entfernt und nur der letzte
+ * angezeigt mit vorangestelltem [XXX entries], wo XXX die Anzahl der Logeinträge ist.
+ * Falls man das nicht möchte: auf false setzen.
+ */
+const MERGE_LOGLINES = false;
+
 
 /*******************************************************************************
  * Konfiguration: Datenpunkte und Filter
@@ -298,7 +309,7 @@ const DEBUG_CUSTOM_FILENAME = '';
 // Regex für die Aufteilung des Logs in 1-Datum/Zeit, 3-Level, 5-Quelle und 7-Logtext.
 // Ggf. anzupassen bei anderem Datumsformat im Log. Wir erwarten ein Format
 // wie z.B.: '2018-07-22 12:45:02.769  - info: javascript.0 Stop script script.js.ScriptAbc'
-const REGEX_LOG = /([0-9_.\-:\s]*)(\s+\- )(silly|debug|info|warn|error|)(: )([a-z0-9.\-]*)(\s)(.*)/g;
+const LOG_PATT =  '([0-9_.\\-:\\s]*)(\\s+\\- )(silly|debug|info|warn|error|)(: )([a-z0-9.\\-]*)(\\s)(.*)';
 
 // Debug: Ignore. Wenn dieses String in der Logzeile enthalten ist, dann ignorieren wir es.
 // Dient dazu, dass wir während des Scripts ins Log schreiben können, ohne dass das dieses Script berücksichtigt.
@@ -510,7 +521,7 @@ function applyFilter(strLogEntry) {
 
     // We apply regex here. This will also eliminate all log lines without proper info
     // like date/time, log level, and entry.
-    let arrSplitLogLine = splitLogLineIntoArray(strLogEntry, REGEX_LOG);
+    let arrSplitLogLine = logLineSplit(strLogEntry);
     if (arrSplitLogLine !== false) {
 
         if (isLikeEmpty(LOG_FILTER) === false) {
@@ -614,6 +625,9 @@ function processLogArrayAndSetStates(arrayLogInput) {
             // Sort array descending
             lpNewFinalLogArray = sortLogArrayByDate(lpNewFinalLogArray, 'desc');
 
+            // Merge Loglines if multiple values and add leading '[123 entries]' to log message
+            if (MERGE_LOGLINES) mergeLogLines(lpNewFinalLogArray);
+
             // We need a separate array for JSON
             let lpNewFinalLogArrayJSON = lpNewFinalLogArray;
 
@@ -638,7 +652,7 @@ function processLogArrayAndSetStates(arrayLogInput) {
             ///////////////////////////////
             // -1- Just the most recent log entry in separate state
             ///////////////////////////////
-            let lpAarrSplitLogLine = splitLogLineIntoArray(lpMostRecent, REGEX_LOG);
+            let lpAarrSplitLogLine = logLineSplit(lpMostRecent);
             // We just use level and message, date/time would be the same as state's time stamp.
             setState(lpStatePath1stPart + '.logMostRecent', lpAarrSplitLogLine.level + ': ' + lpAarrSplitLogLine.message);
 
@@ -657,10 +671,8 @@ function processLogArrayAndSetStates(arrayLogInput) {
             // Let's put together the JSON
             let jsonArr = [];
             for (let j = 0; j < lpNewFinalLogArrayJSON.length; j++) {
-                // +++
-                // We apply regex here to get 4 elements in array: datetime, level, source, message
-                // +++
-                let arrSplitLogLine = splitLogLineIntoArray(lpNewFinalLogArrayJSON[j], REGEX_LOG);
+                // Get 4 elements in array: datetime, level, source, message
+                let arrSplitLogLine = logLineSplit(lpNewFinalLogArrayJSON[j]);
                 if (arrSplitLogLine !== false) {
                     let strLogMsg = arrSplitLogLine.message;
                     // Reduce the length for each log message per configuration
@@ -809,43 +821,139 @@ function sortLogArrayByDate(inputArray, order) {
 
 /**
  * Splits a given log entry into an array with 4 elements.
- * @param {string} strLog   Log line like '2018-07-22 11:47:53.019  - info: javascript.0 script.js ...'
- * @param {RegExp} regExp RegEx
- * @return: {array}  Array with 4 elements: 
- *          0. datetime (e.g. 2018-07-22 11:47:53.019),
- *          1. level (e.g. info)
- *          2. source (e.g. javascript.0)
- *          3. message (e.g. script.js....)
- *          Returns FALSE if no match
+ * @param {string}  inputValue  Log line like '2018-07-22 11:47:53.019  - info: javascript.0 script.js ...'
+ * @return {object}   Array with 4 elements: 
+ *                     0. datetime (e.g. 2018-07-22 11:47:53.019),
+ *                     1. level (e.g. info)
+ *                     2. source (e.g. javascript.0)
+ *                     3. message (e.g. script.js....)
+ *                     Returns FALSE if no match or input value not valid
  */
-function splitLogLineIntoArray(strLog, regExp) {
+function logLineSplit(inputValue) {
 
-    // At first we split into array
-    let returnArray = {}
+    // Get RegEx ready
+    let mRegEx = new RegExp(LOG_PATT, 'g');
 
+    // Split
+    let returnObj = {}
     let m;
     do {
-        m = regExp.exec(strLog);
+        m = mRegEx.exec(inputValue);
         if (m) {
-            returnArray.datetime = m[1];
-            returnArray.level = m[3];
-            returnArray.source = m[5];
-            returnArray.message = m[7];
+            returnObj.datetime = m[1];
+            returnObj.spaceAt2 = m[2];
+            returnObj.level = m[3];
+            returnObj.spaceAt4 = m[4];
+            returnObj.source = m[5];
+            returnObj.spaceAt6 = m[6];
+            returnObj.message = m[7];
         } 
     } while (m);
 
     // Now we check if we have valid entries we want
-    if ((returnArray.datetime === undefined)
-        || (returnArray.level === undefined)
-        || (returnArray.source === undefined)
-        || (returnArray.message === undefined)
-    ){
-        return false; // no valid hits
+    if ((returnObj.datetime === undefined)
+        || (returnObj.level === undefined)
+        || (returnObj.source === undefined)
+        || (returnObj.message === undefined)
+    ) {
+       return false; // no valid hits
     }
 
     // We can return the array now, since it meets all requirements
-    return returnArray;
+    return returnObj;
 
+}
+
+/**
+ * Merges date/time, level, source and message to a logline
+ * @param {array}  inputValue      Array with 4 elements: date/time, level, source, message
+ * @return {string}   Merged log line as string
+ *                            Returns empty string '' if input value not valid
+ */
+function logLineMerge(inputValue) {
+
+    if (inputValue.length === 4) {
+        let mergedLine = inputValue[0] + ' - ' + inputValue[1] + ': ' + inputValue[2] + ' ' + inputValue[3];
+        return mergedLine;
+    } else {
+        // We expect a size of 4, so go out
+        return '';
+    }
+
+}
+
+
+/**
+ * Merge Loglines if multiple values and add leading '[123 entries]' to log message
+ * @param {object}  logArray        array of log entries, including most recent as first element
+ * @return {object} the new merged log array
+ */
+function mergeLogLines(logArray) {
+
+    if(logArray.length > 1) {
+
+        // Get most recent entry and remove it from the array
+        let logMostRecent = logArray[0];
+        logArray.shift(); // Removes the first element
+
+        // split up most recent log entry into elements
+        let lpMostRctSplit = logLineSplit(logMostRecent);
+
+        // Get log array element if given string is part of the array log line.
+        let hitFromLog = getHitInLogArray(lpMostRctSplit.message, logArray);
+        if (hitFromLog !== '') {
+
+            // split up hit from log into elements
+            let hitFromLogSplit = logLineSplit(hitFromLog);
+
+            // Check if hit contains '[123 entries]'. If yes, get the number out of it into lineCounter.
+            let hitLeadingNumber = checkForMultiEntry(hitFromLogSplit.message);
+            let lineCounter = (hitLeadingNumber > 1) ? hitLeadingNumber : 1;
+
+            // Remove all occurrences in Log Array
+            logArray = arrayRemoveElementsByValue(logArray, lpMostRctSplit.message);
+
+            // Rebuild new log line and add the '[123 entries]'
+            logMostRecent = logLineMerge([lpMostRctSplit.datetime, lpMostRctSplit.level, lpMostRctSplit.source, '[' + (lineCounter + 1) + ' entries] ' + lpMostRctSplit.message]);
+            logArray.unshift(logMostRecent); // unshift adds an element at the beginning of an array
+        }
+    }
+
+    return logArray;
+
+    /**
+     * @param  {string}   strInput    A log message checking for leading '[123 entries]'
+     * @return {number}   returns the number 123 from '[123 entries]' if any match, or -1 if not found
+     */
+    function checkForMultiEntry(strInput) {
+        //const REGEXP_MULTI = /^(\[\d+\sentries\])(.*)/i;
+        const REGEXP = /^\[(\d+)\sentries\]\s(.*)/;
+        let matches = REGEXP.exec(strInput);
+        if (matches === null) {
+            return -1;
+        } else {
+            return parseInt(matches[1]);
+        }
+    }
+
+    /**
+     * Checks log array element if given string is part of the array log line.
+     * Returns the entire log line from the array if found, or empty string if not.
+     * Will stop at first match, which should work.
+     *
+     * @param {string}    needle - the string to check
+     * @param {array}     haystack - the array
+     * @return {string}   The full element found
+     */
+    function getHitInLogArray(needle, haystack) {
+
+        for(let i = 0; i < haystack.length; i++) {
+            if (haystack[i].indexOf(needle) != -1) {
+                return haystack[i];
+            }
+        }
+        return '';
+    }
 }
 
 
@@ -884,6 +992,9 @@ function clearJsonByDate(inputArray, stateForTimeStamp) {
   }
   return newArray;
 }
+
+
+
 
 /**
  * Create all States we need at this time.
@@ -1117,4 +1228,28 @@ function isState(strStatePath, strict) {
 }
 
 
+/**
+ * Removing Array element(s) by input value. 
+ * @param {array}   arr             the input array
+ * @param {string}  valRemove       the value to be removed
+ * @param {boolean} [exact=true]    OPTIONAL: default is true. if true, it must fully match. if false, it matches also if valRemove is part of element string
+ * @return {array}  the array without the element(s)
+ */
+function arrayRemoveElementsByValue(arr, valRemove, exact) {
+
+    for ( let i = 0; i < arr.length; i++){ 
+        if (exact) {
+            if ( arr[i] === valRemove) {
+                arr.splice(i, 1);
+                i--; // required, see https://love2dev.com/blog/javascript-remove-from-array/
+            }
+        } else {
+            if (arr[i].indexOf(valRemove) != -1) {
+                arr.splice(i, 1);
+                i--; // see above
+            }
+        }
+    }
+    return arr;
+}
 
