@@ -14,7 +14,10 @@
  * Support:             https://forum.iobroker.net/topic/13971/vorlage-log-datei-aufbereiten-f%C3%BCr-vis-javascript
  *
  * Change Log:
- *  1.5  Mic - Fix issue with option MERGE_LOGLINES_ACTIVE
+ *  1.5.1 Mic - Set option MERGE_LOGLINES_ACTIVE to 'false' as default, as users reported issues. See 
+ *              https://forum.iobroker.net/post/288772 . Also option MERGE_LOGLINES_ACTIVE being marked as "experimental"
+ *              in the comments. Requires further investigation.
+  *  1.5  Mic - Fix issue with option MERGE_LOGLINES_ACTIVE
  *  1.4  Mic + New option MERGE_LOGLINES_TXT for an individual (e.g. localized) string other than 'entries'.
              - Fix JSON span class closing
  *  1.3  Mic + New option MERGE_LOGLINES_ACTIVE: Merge Loglines with same log message to only one line and adds leading
@@ -122,6 +125,11 @@ const BLACKLIST_GLOBAL = [
 ];
 
 /**
+ * ------------------------------------------------------------------------------------------------------
+ * ACHTUNG: EXPERIMENTAL -- Neues Feature seit Version 1.3 - scheint noch fehlerbehaftet, 
+ *                          siehe https://forum.iobroker.net/post/2887
+ *                          Für Produktiv-Umgebung MERGE_LOGLINES_ACTIVE nicht auf true setzen.
+ * ------------------------------------------------------------------------------------------------------
  * Gleiche Logeinträge zusammenfassen:
  * Falls MERGE_LOGLINES_ACTIVE auf true gesetzt, so werden mehrere Logeinträge, die immer wieder auftauchen, 
  * jeweils entfernt und nur der letzte angezeigt mit vorangestelltem [XXX entries], wo XXX die Anzahl der Logeinträge ist.
@@ -129,7 +137,7 @@ const BLACKLIST_GLOBAL = [
  * In MERGE_LOGLINES_TXT kann ein anderes Wort eingetragen werden, z.B. 'Einträge', damit [XXX Einträge] vorangestellt wird.
  * HINWEIS: Falls MERGE_LOGLINES_TXT geändert wird: bitte alle Datenpunkte des Scripts löschen und dann Script neu starten.
  */
-const MERGE_LOGLINES_ACTIVE = true;
+const MERGE_LOGLINES_ACTIVE = false;
 const MERGE_LOGLINES_TXT = 'Einträge';  // English default: 'entries'
 
 
