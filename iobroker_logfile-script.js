@@ -14,6 +14,7 @@
  * Support:             https://forum.iobroker.net/topic/13971/vorlage-log-datei-aufbereiten-f%C3%BCr-vis-javascript
  *
  * Change Log:
+ *  1.5  Mic - Fix issue with option MERGE_LOGLINES_ACTIVE
  *  1.4  Mic + New option MERGE_LOGLINES_TXT for an individual (e.g. localized) string other than 'entries'.
              - Fix JSON span class closing
  *  1.3  Mic + New option MERGE_LOGLINES_ACTIVE: Merge Loglines with same log message to only one line and adds leading
@@ -638,7 +639,7 @@ function processLogArrayAndSetStates(arrayLogInput) {
             lpNewFinalLogArray = sortLogArrayByDate(lpNewFinalLogArray, 'desc');
 
             // Merge Loglines if multiple values and add leading '[123 entries]' to log message
-            if (MERGE_LOGLINES_ACTIVE) mergeLogLines(lpNewFinalLogArray);
+            if (MERGE_LOGLINES_ACTIVE) lpNewFinalLogArray = mergeLogLines(lpNewFinalLogArray);
 
             // We need a separate array for JSON
             let lpNewFinalLogArrayJSON = lpNewFinalLogArray;
@@ -897,22 +898,29 @@ function logLineMerge(inputValue) {
 
 /**
  * Merge Loglines if multiple values and add leading '[123 entries]' to log message
- * @param {object}  logArray        array of log entries, including most recent as first element
+ * @param {object}  logArrayInput        array of log entries, including most recent as first element
  * @return {object} the new merged log array
  */
-function mergeLogLines(logArray) {
+function mergeLogLines(logArrayInput) {
 
-    if(logArray.length > 1) {
+    let logArrayReturn;
 
-        // Get most recent entry and remove it from the array
-        let logMostRecent = logArray[0];
-        logArray.shift(); // Removes the first element
+    if(logArrayInput.length > 1) {
+        // We use array spreads '...' to copy array. If not, array is changed by reference and not value.
+        // That means, if we change the target array, it will also change the source array.
+        // By copying using the spreads '...', we avoid this entirely.
+        // See https://stackoverflow.com/questions/7486085/copy-array-by-value
+        let logArrayProcessed = [...logArrayInput];
+
+        // Get most recent entry in logMostRecent and remove it from the array
+        // This does (1) assign first array element to logMostRecent, and (2) remove first element from logArrayProcessed.        
+        let logMostRecent = logArrayProcessed.shift();
 
         // split up most recent log entry into elements
         let lpMostRctSplit = logLineSplit(logMostRecent);
 
         // Get log array element if given string is part of the array log line.
-        let hitFromLog = getHitInLogArray(lpMostRctSplit.message, logArray);
+        let hitFromLog = getHitInLogArray(lpMostRctSplit.message, logArrayProcessed);
         if (hitFromLog !== '') {
 
             // split up hit from log into elements
@@ -923,15 +931,21 @@ function mergeLogLines(logArray) {
             let lineCounter = (hitLeadingNumber > 1) ? hitLeadingNumber : 1;
 
             // Remove all occurrences in Log Array
-            logArray = arrayRemoveElementsByValue(logArray, lpMostRctSplit.message);
+            logArrayProcessed = arrayRemoveElementsByValue(logArrayProcessed, lpMostRctSplit.message);
 
             // Rebuild new log line and add the '[123 entries]'
             logMostRecent = logLineMerge([lpMostRctSplit.datetime, lpMostRctSplit.level, lpMostRctSplit.source, '[' + (lineCounter + 1) + ' ' + MERGE_LOGLINES_TXT + '] ' + lpMostRctSplit.message]);
-            logArray.unshift(logMostRecent); // unshift adds an element at the beginning of an array
-        }
-    }
+            logArrayProcessed.unshift(logMostRecent); // unshift adds an element at the beginning of an array
 
-    return logArray;
+            // Final log array
+            logArrayReturn = logArrayProcessed;
+        } else {
+            logArrayReturn = logArrayInput;
+        }
+    } else{
+        logArrayReturn = logArrayInput;
+    }
+    return logArrayReturn;
 
     /**
      * @param  {string}   strInput    A log message checking for leading '[123 entries]'
@@ -967,6 +981,7 @@ function mergeLogLines(logArray) {
         }
         return '';
     }
+
 }
 
 
