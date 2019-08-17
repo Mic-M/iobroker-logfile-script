@@ -12,12 +12,23 @@
  *
  * Aktuelle Version:    https://github.com/Mic-M/iobroker.logfile-script
  * Support:             https://forum.iobroker.net/topic/13971/vorlage-log-datei-aufbereiten-f%C3%BCr-vis-javascript
- *
+ 
+ * ---------------------------
  * Change Log:
+ *  2.00a Mic   Major improvements and fixes:
+ *              + Change from instant state update to schedule (STATE_UPDATE_SCHEDULE). The instant update, so once
+ *                new log entries coming in, caused several issues (setting and getting state values (getState() and 
+ *                setState()) within <1ms simply does not work.
+ *              - Fix issue with merging log lines
+ *              + Moved global option MERGE_LOGLINES_ACTIVE to LOG_FILTER, for allowing turning on/off for each filter id.
+ *              + Several other code improvements
+ *              Note: For upgrading from previous version: replace script entirely, re-enter all your options, 
+ *                    and delete all existing states prior to first activation of this script.
+ *  ---------------------------------------------------------------------------------------------------- 
  *  1.5.1 Mic - Set option MERGE_LOGLINES_ACTIVE to 'false' as default, as users reported issues. See 
  *              https://forum.iobroker.net/post/288772 . Also option MERGE_LOGLINES_ACTIVE being marked as "experimental"
  *              in the comments. Requires further investigation.
-  *  1.5  Mic - Fix issue with option MERGE_LOGLINES_ACTIVE
+ *  1.5  Mic - Fix issue with option MERGE_LOGLINES_ACTIVE
  *  1.4  Mic + New option MERGE_LOGLINES_TXT for an individual (e.g. localized) string other than 'entries'.
              - Fix JSON span class closing
  *  1.3  Mic + New option MERGE_LOGLINES_ACTIVE: Merge Loglines with same log message to only one line and adds leading
@@ -125,60 +136,82 @@ const BLACKLIST_GLOBAL = [
 ];
 
 /**
- * ------------------------------------------------------------------------------------------------------
- * ACHTUNG: EXPERIMENTAL -- Neues Feature seit Version 1.3 - scheint noch fehlerbehaftet, 
- *                          siehe https://forum.iobroker.net/post/2887
- *                          Für Produktiv-Umgebung MERGE_LOGLINES_ACTIVE nicht auf true setzen.
- * ------------------------------------------------------------------------------------------------------
- * Gleiche Logeinträge zusammenfassen:
- * Falls MERGE_LOGLINES_ACTIVE auf true gesetzt, so werden mehrere Logeinträge, die immer wieder auftauchen, 
- * jeweils entfernt und nur der letzte angezeigt mit vorangestelltem [XXX entries], wo XXX die Anzahl der Logeinträge ist.
- * Falls man das nicht möchte: auf false setzen.
- * In MERGE_LOGLINES_TXT kann ein anderes Wort eingetragen werden, z.B. 'Einträge', damit [XXX Einträge] vorangestellt wird.
+ * Zusatz-Einstellung für Option "merge" unter "Konfiguration: Datenpunkte und Filter":
+ * In MERGE_LOGLINES_TXT kann hier ein anderes Wort eingetragen werden, z.B. 'entries' oder 'Zeilen', damit [123 entries] 
+ * oder [123 Zeilen] vorangestellt wird anstatt [123 Einträge].
  * HINWEIS: Falls MERGE_LOGLINES_TXT geändert wird: bitte alle Datenpunkte des Scripts löschen und dann Script neu starten.
  */
-const MERGE_LOGLINES_ACTIVE = false;
-const MERGE_LOGLINES_TXT = 'Einträge';  // English default: 'entries'
+const MERGE_LOGLINES_ACTIVE = true;
+const MERGE_LOGLINES_TXT = 'Einträge';
 
 
 /*******************************************************************************
  * Konfiguration: Datenpunkte und Filter
- ******************************************************************************/
-// Dies ist das Herzstück dieses Scripts: hier werden die Datenpunkte konfiguriert, die erstellt werden sollen. 
-// Hierbei kannst du entsprechend Filter setzen, also Wörter/Begriffe, die in Logeinträgen enthalten sein
-// müssen, damit sie in den jeweiligen Datenpunkten aufgenommen werden.
-//
-// id:         Hier Begriff ohne Leerzeichen, z.B. "error", "sonoff", etc.
-//             Die ID wird dann Teil der ID der Datenpunkte.
-// filter_all: ALLE Begriffe müssen in der Logzeile enthalten sein. Ist einer
-//             der Begriffe nicht enthalten, dann wird der komplette Logeintrag
-//             auch nicht übernommen.
-//             Leeres Array eingeben [] falls hier filtern nicht gewünscht.
-// filter_any: Mindestens einer der gelisteten Begriffe muss enthalten sein.
-//             Leeres Array eingeben [] falls hier filtern nicht gewünscht.
-// blacklist:  Wenn einer dieser Begriffe im Logeintrag enthalten ist,
-//             so wird der komplette Logeintrag nicht übernommen, egal was
-//             vorher in filter_all oder filter_any definiert ist.
-//             Mindestens 3 Zeichen erforderlich, sonst wird es nicht
-//             berücksichtigt.
-//             HINWEIS: BLACKLIST_GLOBAL wird vorher schon geprüft und ignoriert.
-//                      Hier kannst du einfach nur noch eine individuelle Blackliste definieren.
-// clean:      Der Log-Eintrag wird um diese Zeichenfolgen bereinigt, d.h. diese
-//             werden entfernt, aber die restliche Zeile bleibt bestehen. Z.B.
-//             um unerwünschte Zeichenfolgen zu entfernen oder Log-Ausgaben
-//             zu kürzen.
-// columns:    Nur für JSON (für vis). 
-//             Folgende Spalten gibt es: 'date','level','source','msg'
-//             Hier können einzelne Spalten entfernt oder die Reihenfolge
-//             verändert werden.
-//             Bitte keine anderen Werte eintragen.
-//
-// WEITERE HINWEISE: 
-// 1. Bestehende Datenpunkt-Inhalte dieses Scripts bei Anpassung dieser Option werden nicht nachträglich neu gefiltert,
-//    sondern nur alle neu hinzugefügten Log-Einträge ab Speichern des Scripts werden berücksichtigt.
-// 2. Die Filter-Einträge können natürlich beliebig geändert und erweitert werden, bitte aber den Aufbau beibehalten.
-
+ ******************************************************************************
+ * Dies ist das Herzstück dieses Scripts: hier werden die Datenpunkte konfiguriert, die erstellt werden sollen. 
+ * Hierbei kannst du entsprechend Filter setzen, also Wörter/Begriffe, die in Logeinträgen enthalten sein
+ * müssen, damit sie in den jeweiligen Datenpunkten aufgenommen werden.
+ * --------------------------------------------------------------------------------------------------------------------------
+ * id:         Ein Begriff ohne Leerzeichen, z.B. "error", "sonoff", homematic, etc. Die ID wird dann Teil der
+ *             Datenpunkte, z.B. "javascript.0.Log-Script.logHomematic.log" mit automatisch vorangestelltem "log".
+ * --------------------------------------------------------------------------------------------------------------------------
+ * filter_all: ALLE Begriffe müssen in der Logzeile enthalten sein. Ist einer der Begriffe nicht enthalten, dann wird der 
+ *             komplette Logeintrag auch nicht übernommen. Leeres Array [] eingeben, falls hier filtern nicht gewünscht.
+ * --------------------------------------------------------------------------------------------------------------------------
+ * filter_any: Mindestens einer der gelisteten Begriffe muss enthalten sein. Leeres Array [] eingeben, falls hier filtern
+ *             nicht gewünscht.
+ * --------------------------------------------------------------------------------------------------------------------------
+ * blacklist:  Schwarze Liste: Wenn einer dieser Begriffe im Logeintrag enthalten ist, so wird der komplette Logeintrag 
+ *             nicht übernommen, egal was vorher in filter_all oder filter_any definiert ist.
+ *             Mindestens 3 Zeichen erforderlich, sonst wird es nicht berücksichtigt.
+ *             HINWEIS: BLACKLIST_GLOBAL wird vorher schon angewendet, hier kannst du einfach nur noch eine individuelle 
+ *             Blackliste pro id definieren.
+ * --------------------------------------------------------------------------------------------------------------------------
+ * clean:      Der Log-Eintrag wird um diese Zeichenfolgen bereinigt, d.h. diese werden entfernt, aber die restliche Zeile 
+ *             bleibt bestehen. Z.B. um unerwünschte Zeichenfolgen zu entfernen oder Log-Ausgaben zu kürzen.
+ * --------------------------------------------------------------------------------------------------------------------------
+ * columns:    Nur für JSON (für vis). 
+ *             Folgende Spalten gibt es: 'date','level','source','msg'. Hier können einzelne Spalten entfernt oder die 
+ *             Reihenfolge verändert werden. Bitte keine anderen Spalten eintragen, sondern nur 'date','level','source','msg'.
+ * --------------------------------------------------------------------------------------------------------------------------
+ * merge:      Log-Einträge mit gleichem Text zusammenfassen. Beispiel:
+ *                  -----------------------------------------------------------------------------------
+ *                  2019-08-17 20:00:00.335 - info: javascript.0 script.js.Wetter: Wetterdaten abrufen.
+ *                  2019-08-17 20:15:00.335 - info: javascript.0 script.js.Wetter: Wetterdaten abrufen.
+ *                  2019-08-17 20:30:00.335 - info: javascript.0 script.js.Wetter: Wetterdaten abrufen.
+ *                  -----------------------------------------------------------------------------------
+ *             Daraus wird dann nur noch eine Logzeile mit letztem Datum/Uhrzeit und hinzufügen von "[3 Einträge]":
+ *                  -----------------------------------------------------------------------------------
+ *                  2019-08-17 20:30:00.335 - info: javascript.0 [3 Einträge] script.js.Wetter: Wetterdaten abrufen.
+ *                  -----------------------------------------------------------------------------------
+ *
+ *             Zum aktivieren: true eintragen, zum deaktivieren: false eintragen.
+ * --------------------------------------------------------------------------------------------------------------------------
+ * WEITERER HINWEIS: 
+ * Bestehende Datenpunkt-Inhalte dieses Scripts bei Anpassung dieser Option werden nicht nachträglich neu 
+ * gefiltert, sondern nur alle neu hinzugefügten Log-Einträge ab Speichern des Scripts werden berücksichtigt.
+ * --------------------------------------------------------------------------------------------------------------------------
+ */
 const LOG_FILTER = [
+
+  // Beispiel für individuellen Eintrag. Hier wird euer Hubschrauber-Landeplatz überwacht :-) Wir wollen nur Einträge 
+  // vom Adapter 'hubschr.0'. Dabei sollen entweder Wetterwarnungen, Alarme, oder UFOs gemeldet werden. Alles unter 
+  // Windstärke "5 Bft" interessiert uns dabei nicht, daher haben wir '0 Bft' bis '4 Bft' auf die Blackliste gesetzt.
+  // Außerdem entfernen wir von der Log-Zeile die Zeichenfolgen '****', '!!!!' und 'ufo gesichtet', der Rest bleibt 
+  // aber bestehen. Zudem haben wir unter columns die Spaltenreihenfolge geändert. 'level' herausgenommen, und Quelle 
+  // ganz vorne.
+/*
+  {
+    id:          'hubschrauberlandeplatz',
+    filter_all:  ['hubschr.0'],
+    filter_any:  ['wetterwarnung', 'alarm', 'ufo'],
+    blacklist:   ['0 Bft', '1 Bft', '2 Bft', '3 Bft', '4 Bft'],
+    clean:       ['****', '!!!!', 'ufo gesichtet'],
+    columns:     ['source','date','msg'],
+    merge:       true,
+  }, 
+*/
+
 /*
   {
     id:          'all',    // Beispiel "all": hier kommen alle Logeinträge rein, keine Filterung
@@ -187,84 +220,46 @@ const LOG_FILTER = [
     blacklist:   ['', ''], // wird ignoriert, wenn leer
     clean:       ['', '', ''], // wird ignoriert, wenn leer
     columns:     ['date','level','source','msg'],  // Spaltenreihenfolge für JSON (Tabelle in vis)
+    merge:       true,
   },
-  {
-    id:          'debug',
-    filter_all:  [' - debug: '], // nur Logeinträge mit Level 'debug'
-    filter_any:  ['', ''],
-    blacklist:   ['', ''],
-    clean:       ['', '', ''],
-    columns:     ['date','level','source','msg'],
-  },
-  {
-    id:          'info',
-    filter_all:  [' - info: '],  // nur Logeinträge mit Level 'info'
-    filter_any:  ['', ''],
-    blacklist:   ['', ''],
-    clean:       ['', '', ''],
-    columns:     ['date','level','source','msg'],
-  },
-  {
-    id:          'warn',
-    filter_all:  [' - warn: '],  // nur Logeinträge mit Level 'warn'
-    filter_any:  ['', ''],
-    blacklist:   ['', ''],
-    clean:       ['', '', ''],
-    columns:     ['date','level','source','msg'],
-  },
-  {
-    id:          'error',
-    filter_all:  [' - error: '],  // nur Logeinträge mit Level 'error'
-    filter_any:  ['', ''],
-    blacklist:   ['', ''],
-    clean:       ['', '', ''],
-    columns:     ['date','level','source','msg'],
-  },
-*/
-
-  // Beispiel für individuellen Eintrag. Hier wird euer Hubschrauber-Landeplatz
-  // überwacht :-) Wir wollen nur Einträge vom Adapter 'hubschr.0'.
-  // Dabei sollen entweder Wetterwarnungen, Alarme, oder UFOs gemeldet werden.
-  // Alles unter Windstärke "5 Bft" interessiert uns dabei nicht, daher haben
-  // wir '0 Bft' bis '4 Bft' auf die Blackliste gesetzt.
-  // Außerdem entfernen wir von der Log-Zeile die Zeichenfolgen '****', '!!!!' 
-  // und 'ufo gesichtet', der Rest bleibt aber bestehen.
-  // Zudem haben wir unter columns die Spaltenreihenfolge geändert. 'level'
-  // herausgenommen, und Quelle ganz vorne.
-/*
-  {
-    id:          'hubschrauberlandeplatz',
-    filter_all:  ['hubschr.0'],
-    filter_any:  ['wetterwarnung', 'alarm', 'ufo'],
-    blacklist:   ['0 Bft', '1 Bft', '2 Bft', '3 Bft', '4 Bft'],
-    clean:       ['****', '!!!!', 'ufo gesichtet'],
-    columns:     ['level','date','msg'],
-  }, 
 */
   {
     id:          'info',
-    filter_all:  [' - info: '],
+    filter_all:  [' - info: '], // nur Logeinträge mit Level 'info'
     filter_any:  ['', ''],
     blacklist:   ['', ''],
     clean:       ['', '', ''],
     columns:     ['date','level','source','msg'],
+    merge:       true,
   },
-
-   {
+  {
     id:          'error',
-    filter_all:  [' - error: ', ''],
+    filter_all:  [' - error: ', ''],  // nur Logeinträge mit Level 'error'
     filter_any:  [''],
     blacklist:   ['', '', ''],
     clean:       ['', '', ''],
     columns:     ['date','level','source','msg'],
+    merge:       true,    
   },
-   {
+  {
     id:          'warnanderror',
     filter_all:  ['', ''],
-    filter_any:  [' - error: ', ' - warn: '],
+    filter_any:  [' - error: ', ' - warn: '],  // nur Logeinträge mit Levels 'warn' und 'error'
     blacklist:   ['', 'no playback content', 'Ignore! Actual secret is '],
     clean:       ['', '', ''],
     columns:     ['date','level','source','msg'],
+    merge:       true,
+  },
+  {
+    // Beispiel, um einen bestimmten Adapter zu überwachen.
+    // Hier werden alle Fehler und Warnungen des Homematic-Adapters hm-rpc.0 gelistet.
+    id:          'homematic',
+    filter_all:  ['hm-rpc.0', ''],  // hm-rpc.0 muss enthalten sein.
+    filter_any:  [' - error: ', ' - warn: '],  // entweder error oder warn
+    blacklist:   ['', '', ''],
+    clean:       ['', '', ''],
+    columns:     ['date','level','source','msg'],
+    merge:       true,
   },
 
 ];
@@ -301,7 +296,14 @@ const JSON_APPLY_CSS = true;
 const JSON_APPLY_CSS_LIMITED_TO_LEVEL = true;
 
 
-
+/*******************************************************************************
+ * Konfiguration: Wie oft Datenpunkte aktualisieren?
+ ******************************************************************************/
+// Neu reinkommende Logeinträge werden erst mal gesammelt (in Variable G_NewLogLinesArrayToProcess). Diese werden dann 
+// regelmäßig in den Datenpunkten geschrieben. Sinnvoll ist hier nicht kürzer als 2-3 Sekunden, und nicht länger als 
+// ein paar Minuten. Zu kurzes Intervall: Script kommt nicht mehr nach. Zu lange: falls viele Logeinträge reinkommen, 
+// kann sich vieles "aufstauen" zur Abarbeitung. Benutze den "Cron"-Button oben rechts für komfortable Einstellung.
+const STATE_UPDATE_SCHEDULE = '*/20 * * * * *'; // alle 20 Sekunden
 
 /*******************************************************************************
  * Konfiguration: Konsolen-Ausgaben
@@ -312,8 +314,6 @@ const LOG_DEBUG = false;
 
 // Auf true setzen, wenn ein paar Infos dieses Scripts im Log ausgegeben werden dürfen, bei false bleiben die Infos komplett weg.
 const LOG_INFO = true;
-
-
 
 
 /*******************************************************************************
@@ -363,45 +363,49 @@ let G_tailOptions= {separator: /[\r]{0,1}\n/, fromBeginning: false}
 let G_tail; // being set later
 
 // Schedule for every midnight. So not set at this point.
-let G_Schedule; // being set later
+let G_Schedule_Midnight; // being set later
 
-/*************************************************************************************************************************
- * onStop - Being executed if this ioBroker Script stops. 
- *************************************************************************************************************************/
-// This is to end the Tale. Not sure, if we indeed need it, but just in case...
-onStop(function myScriptStop () {
-    endTailingProcess();
-}, 0);
+// Schedule for logfile update
+let G_Schedule_StateUpdate; // being set later
 
+// We add here all the new log lines to be processed regularly (per STATE_UPDATE_SCHEDULE);
+let G_NewLogLinesArrayToProcess = [];
 
 /*************************************************************************************************************************
  * init - This is executed on every script (re)start.
  *************************************************************************************************************************/
 // We do some timing here with setTimeout() to avoid warnings like if states not yet exist, etc.
+
 init();
 function init() {
     
     // Create our states, if not yet existing.
     createLogStates();
 
-    // Subscribe on changes: Pressed button "clearJSON"
-    setTimeout(subscribeClearJson, 4000);
+    // States should have been created, so continue
+    setTimeout(function(){    
 
-    // Start main function
-    setTimeout(main, 5000);
+        // Subscribe on changes: Pressed button "clearJSON"
+        subscribeClearJson();
 
-    // Every midnight at 0:00, we have a new log file. So, we schedule accordingly.
-    let strCron = '0 0 * * *' // At 00:00 every day.
-    clearSchedule(G_Schedule);
-    setTimeout(function(){
-        G_Schedule = schedule(strCron, main);
-    }, 20000);
+        // Start main function.
+        main();
+
+        // Schedule writing changes into states
+        clearSchedule(G_Schedule_StateUpdate);
+        G_Schedule_StateUpdate = schedule(STATE_UPDATE_SCHEDULE, processNewLogsPerSchedule);
+
+        // Every midnight at 0:00, we have a new log file. So, we schedule accordingly.
+        clearSchedule(G_Schedule_Midnight);
+        G_Schedule_Midnight = schedule('0 0 * * *', main);
+
+    }, 2000);
 
 }
 
 
 /*************************************************************************************************************************
- * Main Function. It tailes the ioBroker log, so we get every new log entry as string.
+ * Main Function. Will be restarted every midnight by G_Schedule_Midnight.
  *************************************************************************************************************************/
 function main() {
 
@@ -409,118 +413,98 @@ function main() {
     endTailingProcess();
 
     // Next, we start the tailing process.
-    setTimeout(startTailingProcess, 2500);
+    setTimeout(startTailingProcess, 2000);
 
-    // Finally, we continue.
-    setTimeout(function() {
+    // Monitor log changes
+    setTimeout(monitorLogChanges, 3000);
+
+}
+
+
+
+
+function monitorLogChanges() {
     
-        if (LOG_INFO) log('Start/continue monitoring ioBroker log...')
+    if (LOG_INFO) log('Start monitoring of the ioBroker log...')
 
-        G_tail.on('line', function(newLogEntry) {
-            // Check if we have DEBUG_IGNORE_STR in the new log line
-            if(! newLogEntry.includes(DEBUG_IGNORE_STR)) {
+    G_tail.on('line', function(newLogEntry) {
+        // Check if we have DEBUG_IGNORE_STR in the new log line
+        if(! newLogEntry.includes(DEBUG_IGNORE_STR)) {
+
+            if (newLogEntry.length > 45) {  // a log line with less than 45 chars is not a valid log line.
 
                 // Cleanse and apply blacklist
                 newLogEntry = cleanseLogLine(newLogEntry);
 
-                if ( (! isLikeEmpty(newLogEntry)) && (newLogEntry.length > 30) ) { // Avoid log lines with just a few chars
+                // Push result into logArrayFinal
+                G_NewLogLinesArrayToProcess.push(newLogEntry);
 
-                    if (LOG_DEBUG) log (DEBUG_IGNORE_STR + '===============================================================');
-                    if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'New Log Entry, Len (' + newLogEntry.length + '), content: [' + newLogEntry + ']');
+                // some debugging
+                if (LOG_DEBUG) log (DEBUG_IGNORE_STR + '===============================================================');
+                if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'New Log Entry, Len (' + newLogEntry.length + '), content: [' + newLogEntry + ']');
 
-                    // Apply the filters as set in LOG_FILTER and split up log levels into elements of an array
-                    let logEntryFilteredArray = applyFilter(newLogEntry);
-
-                    // Further process and finally set states with our results.
-                    processLogArrayAndSetStates(logEntryFilteredArray);
-
-                    // That's it.
-
-                    // This is for debugging purposes, and it will log every new log entry once again. See DEBUG_EXTENDED option above.
-                    if (DEBUG_EXTENDED) {
-                        if (! newLogEntry.includes(DEBUG_EXTENDED_STR)) { // makes sure no endless loop here.
-                            log(DEBUG_EXTENDED_STR + newLogEntry.substring(0, DEBUG_EXTENDED_NO_OF_CHARS));
-                        }
+                // This is for debugging purposes, and it will log every new log entry once again. See DEBUG_EXTENDED option above.
+                if (DEBUG_EXTENDED) {
+                    if (! newLogEntry.includes(DEBUG_EXTENDED_STR)) { // makes sure no endless loop here.
+                        log(DEBUG_EXTENDED_STR + newLogEntry.substring(0, DEBUG_EXTENDED_NO_OF_CHARS));
+						 
                     }
                 }
             }
-        });
+        }
+    });
 
-        G_tail.on('error', function(error) {
-            // Error Handling
-            log('Tail error', error);
-            if (error.includes('ENOENT: no such file or directory')) {
-                // It looks like the log file was deleted. So we restart process.
-                // Will also create a new log file if not existing.
-                restartTailingProcess();
-                log('Tail process re-started due to file/directory not found error. It will create a new log file if it has been deleted.', 'warn')
-            } else {
-                log('Tailing process ended by the log script due to this error.', 'warn');
-                endTailingProcess();
-            }
-        });
-
-    }, 5000);
+    G_tail.on('error', function(error) {
+        // Error Handling
+        log('Tail error', error);
+        if (error.includes('ENOENT: no such file or directory')) {
+            // It looks like the log file was deleted. So we restart process.
+            // Will also create a new log file if not existing.
+            restartTailingProcess();
+            log('Tail process re-started due to file/directory not found error. It will create a new log file if it has been deleted.', 'warn')
+        } else {
+            log('Tailing process ended by the log script due to this error.', 'warn');
+            endTailingProcess();
+        }
+    });
 
 }
-
-/*************************************************************************************************************************
- * Tailing functions
- *************************************************************************************************************************/
 
 /**
- * Start new tailing process
+ * Called per schedule STATE_UPDATE_SCHEDULE.
+ * It processes G_NewLogLinesArrayToProcess
  */
-function startTailingProcess() {
-    // Path to iobroker log file
-    let strFsFullPath = getCurrentFullFsLogPath();
-    // Create a new log file. It will created if it is not yet existing.
-    // This will avoid an error if right after midnight the log file is not yet there
-    const fs = require('fs');
-    if (fs.existsSync(strFsFullPath)) {
-        // File is existing
-    } else {
-        // File is not existing, so we create it.
-        if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'Log file is not existing, so we need to create a blank file.');
-        fs.writeFile(strFsFullPath, '', function(err) {
-            if(err) return log(err);
-        }); 
-    }
+function processNewLogsPerSchedule() {
+    if (! isLikeEmpty (G_NewLogLinesArrayToProcess) ) {
 
-    // Now start new tailing instance
-    if(LOG_INFO) log('Start new Tail process. File path to current log: [' + strFsFullPath + ']');
-    G_tail = new G_Tail(strFsFullPath, G_tailOptions);
+        // We use array spreads '...' to copy array. If not, array is changed by reference and not value.
+        // That means, if we change the target array, it will also change the source array.
+        // See https://stackoverflow.com/questions/7486085/copy-array-by-value
+        let logArrayToProcess = [...G_NewLogLinesArrayToProcess];
+        G_NewLogLinesArrayToProcess.length = 0; // emptying array. https://stackoverflow.com/questions/4804235/difference-between-array-length-0-and-array
 
-}
-
-/************************
- * Restart Tail.
- ************************/
-function restartTailingProcess() {
-    // End tailing
-    endTailingProcess();
-    // Start new TAIL process, as we have a new log file every 0:00.
-    startTailingProcess();
-}
-
-/**************
- * End the tailing process
- **************/
-function endTailingProcess() {
-    /**
-     * End the tailing gracefully.
-     * Exit process: see here: https://stackoverflow.com/questions/5266152/how-to-exit-in-node-js/37592669#37592669
-     */
-
-    // Properly set the exit code while letting the process exit gracefully.
-        if ( typeof G_tail !== 'undefined' && G_tail ) {
-            G_tail.unwatch(); // just in case.
-            G_tail.exitCode = 1;
-            if(LOG_DEBUG) log('Properly end the existing Tail process.');
-        } else {
-            if(LOG_DEBUG) log('Tail process was not active, so nothing to stop.');
+        /**
+         * Apply the filters as set in LOG_FILTER and split up log levels into elements of an array
+         * logArrayToProcessFiltered will look as follows:
+         *   logArrayToProcessFiltered = [
+         *     ['info':'15.08.2019 09:27:55.476 info adapt.0 some log', 'error':''],
+         *     ['info':'15.08.2019 09:33:58.522 info adapt.0 some more log', 'error':''],
+         *     ['info':'', 'error':'15.08.2019 09:37:55.807 error adapt.0 some error log']
+         *   ]
+         */
+        let logArrayToProcessFiltered = [];
+        for (let lpEntry of logArrayToProcess) {
+            let logEntryFilteredArray = applyFilter(lpEntry);
+            logArrayToProcessFiltered.push(logEntryFilteredArray);
         }
+
+        // Further process and finally set states with our results.
+        processLogArrayAndSetStates(logArrayToProcessFiltered);
+
+    }
 }
+
+
 
 /*************************************************************************************************************************
  * Filtering
@@ -530,10 +514,9 @@ function endTailingProcess() {
  * This function applies the filters as set in LOG_FILTER.
  * Also, it splits up the log levels into elements of an array we return by this function.
  * @param {string} strLogEntry
- * @return {array}  split up log levels as elements within this array
+ * @return {array}  split up log levels as elements within this array, like: ['info':'logtext', 'error':'logtext'] etc.
  */
 function applyFilter(strLogEntry) {
-
     // We add one element per each filter to the Array ('all', 'error', etc.)
     let logArrayProcessed = [];
     for (let j = 0; j < LOG_FILTER.length; j++) {
@@ -577,62 +560,75 @@ function applyFilter(strLogEntry) {
 /**
  * Further processes the log array and set states accordingly.
  * 
- * @param                     arrayLogInput     Either the Array of the log input, or '[REBUILD_LOG_STATES]' if
- *                            you just want to rebuild without adding a new log line (for example
- *                            for Json clear date/time)
- *                            Array is like: ['info':'logtext', 'error':'logtext'] etc.
- * return: function does not return a value.
+ * @param  arrayLogInput             The Array of the log input.
+ *                                   Array is like: 
+ *                                   [
+ *                                      ['info':'15.08.2019 09:27:55.476 info adapt.0 some log', 'error':''],
+ *                                      ['info':'15.08.2019 09:33:58.522 info adapt.0 some more log', 'error':''],
+ *                                      ['info':'', 'error':'15.08.2019 09:37:55.807 error adapt.0 some error log'],
+ *                                   ]
+ *                                   Array is like: ['info':'logtext', 'error':'logtext'] etc.
  **/
 function processLogArrayAndSetStates(arrayLogInput) {
 
-    let justRebuild = (arrayLogInput === '[REBUILD_LOG_STATES]') ? true : false;
-
-    // Build array from LOG_FILTER (like 'info', 'error', 'warnanderror', etc.)
+    /*****************
+     * [1] Build array from LOG_FILTER. Looks like: arrayFilterIds = ['info', 'error', 'warn'].
+     * Also, build result array to keep our results. Lools like resultArr = [info: '', error: '', warn: '']
+     *****************/
     let arrayFilterIds = [];
+    let resultArr = [];
     for (let i = 0; i < LOG_FILTER.length; i++) {
         arrayFilterIds.push(LOG_FILTER[i].id); // each LOG_FILTER id into array
+        resultArr[LOG_FILTER[i].id] = '';
     }
 
-    // Loop through the LOG_FILTER ids
-    for (let k = 0; k < arrayFilterIds.length; k++) {
+    /*****************
+     * [2] Process element by element, so ['info':'log test', 'error':'log test'] of given array.
+     * We fill the result array accordingly.
+     *****************/
+    for (let lpElement of arrayLogInput) {
 
-        // some variables
-        let lpFilterId = arrayFilterIds[k]; // Filter ID from LOG_FILTER, like 'error', 'info', 'custom', etc.
-        let lpStatePath1stPart = LOG_STATE_PATH + '.log' + cleanseStatePath(lpFilterId); // Get Path to state
-        let lpNewLogLine = arrayLogInput[lpFilterId]; // Current log line of provided array element of 'error', 'info', 'custom' etc.
-        let lpNewFinalLog;
+        // Loop thru our new array arrayFilterIds and fill result array
+        for (let k = 0; k < arrayFilterIds.length; k++) {
 
-        // Let's check first if we have any log content for the given filter id.
-        let isLoopItemEmpty = (isLikeEmpty(lpNewLogLine)) ? true : false;
+            // some variables
+            let lpFilterId = arrayFilterIds[k]; // Filter ID from LOG_FILTER, like 'error', 'info', 'custom', etc.
+            let lpNewLogLine = lpElement[lpFilterId]; // Current log line of provided array element of 'error', 'info', 'custom' etc.
 
-        if (isLoopItemEmpty && !justRebuild) {
-
-            // We do nothing. No rebuild needed, and loop item is empty.
-            if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'Filter  [' + lpFilterId + ']: No match.');
-
-        } else {
-
-            let strCurrentStateLog = getState(lpStatePath1stPart + '.log').val; // Get state contents of loop item
-
-            if (justRebuild) {
-                // Not adding new log line, we just rebuild so take the existing log
-                lpNewFinalLog = strCurrentStateLog;
-                log (DEBUG_IGNORE_STR + 'Rebuilding only: [' + lpFilterId + '], lpNewLogLine: [' + lpNewLogLine + ']');
-
+            if (isLikeEmpty(lpNewLogLine)) {
+                // No log content for the given filter id.
+                if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'Filter  [' + lpFilterId + ']: No match.');
             } else {
 
                 if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'Filter [' + lpFilterId + ']: Match! New Log Line length: (' + lpNewLogLine.length + ')');
 
-                // Append new log line to state value
-                if (isLikeEmpty(strCurrentStateLog)) {
-                    lpNewFinalLog = lpNewLogLine; 
+                // Append new log line to result array
+                if (isLikeEmpty(resultArr[lpFilterId])) {
+                    resultArr[lpFilterId] = lpNewLogLine; 
                 } else {
-                    lpNewFinalLog = lpNewLogLine + strCurrentStateLog; // "\n" not needed, always added above
+                    resultArr[lpFilterId] = lpNewLogLine + resultArr[lpFilterId]; // "\n" not needed, always added above
                 }
             }
         }
+    }
 
-        if ( ( (! isLikeEmpty(lpNewFinalLog)) && (! isLoopItemEmpty) ) || justRebuild ) {
+    /*****************
+     * [3] We merge with the current state.
+     *****************/
+    for (let k = 0; k < arrayFilterIds.length; k++) {
+        let lpFilterId = arrayFilterIds[k]; // Filter ID from LOG_FILTER, like 'error', 'info', 'custom', etc.
+        let lpStatePath1stPart = LOG_STATE_PATH + '.log' + cleanseStatePath(lpFilterId); // Get Path to state
+        let lpNewFinalLog = resultArr[lpFilterId];
+
+        if (! isLikeEmpty(lpNewFinalLog) )  {
+
+            // Get state value
+			let strCurrentStateLog = getState(lpStatePath1stPart + '.log').val; // Get state contents of loop item
+            
+            // Add state log lines to our final log
+            if (! isLikeEmpty(strCurrentStateLog)) {
+                lpNewFinalLog = lpNewFinalLog + strCurrentStateLog; // "\n" not needed, always added above
+            }            
 
             // Convert to array for easier handling
             let lpNewFinalLogArray = lpNewFinalLog.split(/\r?\n/);
@@ -647,7 +643,10 @@ function processLogArrayAndSetStates(arrayLogInput) {
             lpNewFinalLogArray = sortLogArrayByDate(lpNewFinalLogArray, 'desc');
 
             // Merge Loglines if multiple values and add leading '[123 entries]' to log message
-            if (MERGE_LOGLINES_ACTIVE) lpNewFinalLogArray = mergeLogLines(lpNewFinalLogArray);
+            let doMerge = logFilterGetValueByKey(lpFilterId, 'merge');
+            if (doMerge || doMerge === 'true') {    // also check for string 'true' in case user used string
+                lpNewFinalLogArray = mergeLogLines(lpNewFinalLogArray);
+            }
 
             // We need a separate array for JSON
             let lpNewFinalLogArrayJSON = lpNewFinalLogArray;
@@ -671,24 +670,17 @@ function processLogArrayAndSetStates(arrayLogInput) {
             // ** Finally set the states
 
             ///////////////////////////////
-            // -1- Just the most recent log entry in separate state
+            // -1- Full Log, String, separated by "\n"
             ///////////////////////////////
-            let lpAarrSplitLogLine = logLineSplit(lpMostRecent);
-            // We just use level and message, date/time would be the same as state's time stamp.
-            setState(lpStatePath1stPart + '.logMostRecent', lpAarrSplitLogLine.level + ': ' + lpAarrSplitLogLine.message);
-
-            ///////////////////////////////
-            // -2- Full Log, String, separated by "\n"
-            ///////////////////////////////
-
             let strResult = lpNewFinalLogArray.join("\n");
             if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'New length to be set into state: (' + strResult.length + '), state: [' + lpStatePath1stPart + '.log' + ']');
+
             setState(lpStatePath1stPart + '.log', strResult);
-            
+
             ///////////////////////////////
-            // -3- JSON, with elements date and msg
+            // -2- JSON, with elements date and msg
             ///////////////////////////////
-      
+
             // Let's put together the JSON
             let jsonArr = [];
             for (let j = 0; j < lpNewFinalLogArrayJSON.length; j++) {
@@ -749,6 +741,75 @@ function processLogArrayAndSetStates(arrayLogInput) {
         }
     }
 }
+
+
+/*************************************************************************************************************************
+ * Tailing functions
+ *************************************************************************************************************************/
+
+/**
+ * Start new tailing process
+ */
+function startTailingProcess() {
+
+    // Path to iobroker log file
+    let strFsFullPath = getCurrentFullFsLogPath();
+
+    // Create a new log file. It will created if it is not yet existing.
+    // This will avoid an error if right after midnight the log file is not yet there
+																											 
+    const fs = require('fs');
+    if (fs.existsSync(strFsFullPath)) {
+        // File is existing
+    } else {
+        // File is not existing, so we create it.
+        if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'Log file is not existing, so we need to create a blank file.');
+        fs.writeFile(strFsFullPath, '', function(err) {
+            if(err) return log(err);
+        }); 
+    }
+
+    // Now start new tailing instance
+    if(LOG_INFO) log('Start new Tail process. File path to current log: [' + strFsFullPath + ']');
+    G_tail = new G_Tail(strFsFullPath, G_tailOptions);
+
+}
+
+/************************
+ * Restart Tail.
+ ************************/
+function restartTailingProcess() {
+    // End tailing
+    endTailingProcess();
+
+    // Start new TAIL process, as we have a new log file every 0:00.
+    startTailingProcess();
+}
+
+/**************
+ * End the tailing process
+ **************/
+
+function endTailingProcess() {
+ 
+																  
+
+    /**
+     * End the tailing gracefully.
+     * Exit process: see here: https://stackoverflow.com/questions/5266152/how-to-exit-in-node-js/37592669#37592669
+     */
+
+    // Properly set the exit code while letting the process exit gracefully.
+        if ( typeof G_tail !== 'undefined' && G_tail ) {
+            G_tail.unwatch(); // just in case.
+            G_tail.exitCode = 1;
+            if(LOG_DEBUG) log('Properly end the existing Tail process.');
+        } else {
+            if(LOG_DEBUG) log('Tail process was not active, so nothing to stop.');
+        }
+}
+
+
 
 
 /**
@@ -887,9 +948,9 @@ function logLineSplit(inputValue) {
 
 /**
  * Merges date/time, level, source and message to a logline
- * @param {array}  inputValue      Array with 4 elements: date/time, level, source, message
- * @return {string}   Merged log line as string
- *                            Returns empty string '' if input value not valid
+ * @param  {array}    inputValue   Array with 4 elements: date/time, level, source, message
+ * @return {string}   Merged log line as string. Empty string '', if input value not valid.
+																			  
  */
 function logLineMerge(inputValue) {
 
@@ -906,54 +967,72 @@ function logLineMerge(inputValue) {
 
 /**
  * Merge Loglines if multiple values and add leading '[123 entries]' to log message
- * @param {object}  logArrayInput        array of log entries, including most recent as first element
- * @return {object} the new merged log array
+ * @param {array}  logArray        array of log entries
+ * @return {array} the new merged log array
  */
-function mergeLogLines(logArrayInput) {
+function mergeLogLines(logArray) {
 
-    let logArrayReturn;
+    // We use array spreads '...' to copy array. If not, array is changed by reference and not value.
+    // That means, if we change the target array, it will also change the source array.
+    // See https://stackoverflow.com/questions/7486085/copy-array-by-value
+    let arrCopy = [...logArray];
+    let arrNew = [];
 
-    if(logArrayInput.length > 1) {
-        // We use array spreads '...' to copy array. If not, array is changed by reference and not value.
-        // That means, if we change the target array, it will also change the source array.
-        // By copying using the spreads '...', we avoid this entirely.
-        // See https://stackoverflow.com/questions/7486085/copy-array-by-value
-        let logArrayProcessed = [...logArrayInput];
+    for (let i = 0; i < arrCopy.length; i++) {
 
-        // Get most recent entry in logMostRecent and remove it from the array
-        // This does (1) assign first array element to logMostRecent, and (2) remove first element from logArrayProcessed.        
-        let logMostRecent = logArrayProcessed.shift();
+        if (! isLikeEmpty(arrCopy[i])) {
 
-        // split up most recent log entry into elements
-        let lpMostRctSplit = logLineSplit(logMostRecent);
+            let lpEntry = arrCopy[i];
+            let lineWithoutDate = lpEntry.substring(23);
+            let lpLineSplit = logLineSplit(lpEntry);
 
-        // Get log array element if given string is part of the array log line.
-        let hitFromLog = getHitInLogArray(lpMostRctSplit.message, logArrayProcessed);
-        if (hitFromLog !== '') {
+            // Get multiple values
+            let lpMulti = arrayGetElements(arrCopy, removeLeading123entries(lpLineSplit.message), false);
+            let result = lpEntry;
+            let lineCounter = 0;
+            if (lpMulti.length > 1) { // Treffer - die aktuelle Zeile zählt ja auch mit.
+                lineCounter = lpMulti.length;
+                let hitLeadingNumber = -1;
+                for (let hitLine of lpMulti) {
+                    let hitLineSplit = logLineSplit(hitLine);
+                    // Check if hit contains '[123 entries]'. If yes, get the number out of it into lineCounter.
+                    // If not, we just count with 1.
+                    hitLeadingNumber = checkForMultiEntry(hitLineSplit.message);
+                    if (hitLeadingNumber > 1) {
+                        lineCounter = hitLeadingNumber + lpMulti.length - 1;
+                    }
+                }
+            } else {
+                lineCounter = 1;
+            }
 
-            // split up hit from log into elements
-            let hitFromLogSplit = logLineSplit(hitFromLog);
+            if (lineCounter > 1) {
 
-            // Check if hit contains '[123 entries]'. If yes, get the number out of it into lineCounter.
-            let hitLeadingNumber = checkForMultiEntry(hitFromLogSplit.message);
-            let lineCounter = (hitLeadingNumber > 1) ? hitLeadingNumber : 1;
-
-            // Remove all occurrences in Log Array
-            logArrayProcessed = arrayRemoveElementsByValue(logArrayProcessed, lpMostRctSplit.message);
-
-            // Rebuild new log line and add the '[123 entries]'
-            logMostRecent = logLineMerge([lpMostRctSplit.datetime, lpMostRctSplit.level, lpMostRctSplit.source, '[' + (lineCounter + 1) + ' ' + MERGE_LOGLINES_TXT + '] ' + lpMostRctSplit.message]);
-            logArrayProcessed.unshift(logMostRecent); // unshift adds an element at the beginning of an array
-
-            // Final log array
-            logArrayReturn = logArrayProcessed;
-        } else {
-            logArrayReturn = logArrayInput;
-        }
-    } else{
-        logArrayReturn = logArrayInput;
+                    // remove from array by filling empty value
+                    arrCopy = arrayReplaceElementsByValue(arrCopy, removeLeading123entries(lpLineSplit.message), '', false);
+                    // new result
+                    result = logLineMerge([lpLineSplit.datetime, lpLineSplit.level, lpLineSplit.source, '[' + lineCounter + ' ' + MERGE_LOGLINES_TXT + '] ' + removeLeading123entries(lpLineSplit.message)]);
+            }
+            arrNew.push(result);
+        } 
     }
-    return logArrayReturn;
+
+    return arrNew;
+
+    /**
+     * @param  {string}   strInput    A log message with potential leading '[123 entries]'
+     * @return {string}   string without leading '[123 entries]', if it is there
+     */
+    function removeLeading123entries(strInput) {
+
+        let mRegEx = new RegExp(MERGE_REGEX_PATT);
+        let matches = mRegEx.exec(strInput);
+        if (matches === null) {
+            return strInput;
+        } else {
+            return matches[2];
+        }
+    }
 
     /**
      * @param  {string}   strInput    A log message checking for leading '[123 entries]'
@@ -971,26 +1050,8 @@ function mergeLogLines(logArrayInput) {
         }
     }
 
-    /**
-     * Checks log array element if given string is part of the array log line.
-     * Returns the entire log line from the array if found, or empty string if not.
-     * Will stop at first match, which should work.
-     *
-     * @param {string}    needle - the string to check
-     * @param {array}     haystack - the array
-     * @return {string}   The full element found
-     */
-    function getHitInLogArray(needle, haystack) {
-
-        for(let i = 0; i < haystack.length; i++) {
-            if (haystack[i].indexOf(needle) != -1) {
-                return haystack[i];
-            }
-        }
-        return '';
-    }
-
 }
+
 
 
 /*************
@@ -1030,8 +1091,6 @@ function clearJsonByDate(inputArray, stateForTimeStamp) {
 }
 
 
-
-
 /**
  * Create all States we need at this time.
  */
@@ -1049,18 +1108,23 @@ function createLogStates() {
                 statesArray.push({ id:'log' + lpIDClean + '.logJSON', name:'Filtered Log - ' + lpIDClean + ' - JSON', type:"string", role: "state", def: ""});
                 statesArray.push({ id:'log' + lpIDClean + '.logJSONcount', name:'Filtered Log - Count of JSON ' + lpIDClean, role: "state", type:"number", def: 0});
                 statesArray.push({ id:'log' + lpIDClean + '.clearJSON', name:'Clear JSON log ' + lpIDClean, role: "button", type:"boolean", def: false});
-                statesArray.push({ id:'log' + lpIDClean + '.logMostRecent', name:'Just the most recent log entry' + lpIDClean, role: "state", type:"string", def: ''});
 
-                // Backward compatibility & cleanup: removing states not needed
-                // State .clearJSONtime was removed with script version 1.2 onwards as we use now time stamp of button '.clearJSON'.
-                let lpRetiredState = LOG_STATE_PATH + '.log' + lpIDClean + '.clearJSONtime';
+                /**
+                 *  Backward compatibility & cleanup: removing states not needed
+                 */
+                // State .logMostRecent removed with script version 2.0a onwards as it does not make sense any longer due to scheduled update
+                let lpRetiredState = LOG_STATE_PATH + '.log' + lpIDClean + '.logMostRecent';
                 if (isState(lpRetiredState, true))  {
                     deleteState(lpRetiredState);
                     if (LOG_INFO) log('Remove retired state: ' + lpRetiredState);
                 }
-
-
-
+                // State .clearJSONtime removed with script version 1.2 onwards as we use now time stamp of button '.clearJSON'.
+                lpRetiredState = LOG_STATE_PATH + '.log' + lpIDClean + '.clearJSONtime';
+                if (isState(lpRetiredState, true))  {
+                    deleteState(lpRetiredState);
+                    if (LOG_INFO) log('Remove retired state: ' + lpRetiredState);
+                }
+																																														  
             }
         }
         if (LOG_DEBUG) log('createLogStates(): Clean IDs: ' + logCleanIDs);
@@ -1081,9 +1145,41 @@ function createLogStates() {
 }
 
 
+/**
+ * LOG_FILTER: Get value by key. So if we provide 'error' as id, then we get the content of any other element, like of 'blacklist'.
+ * @param {string} id      the id, like 'error', 'warn', etc.
+ * @param element the element of which we need the value, e.g. 'blacklist', 'merge', etc.
+ * Returns the element's value, or number -1 of nothing found.
+ */
+function logFilterGetValueByKey(id, element) {
+    // We need to get all ids of LOG_FILTER into array
+    for (let i = 0; i < LOG_FILTER.length; i++) {
+        if ( LOG_FILTER[i].id === id ) {
+            if (LOG_FILTER[i][element] === undefined) {
+                return -1;
+            } else {
+                return LOG_FILTER[i][element];
+            }
+        }
+    }
+    return -1;
+}
 
 
+/*************************************************************************************************************************
+ * onStop - Being executed once this ioBroker Script stops. 
+ *************************************************************************************************************************/
+// This is to end the Tale. Not sure, if we indeed need it, but just in case...
+onStop(function myScriptStop () {
 
+    endTailingProcess();
+
+    clearSchedule(G_Schedule_Midnight);
+    clearSchedule(G_Schedule_StateUpdate);
+
+    if (LOG_INFO) log('Stop LogScript gracefully.');
+
+}, 0);
 
 
 /*************************************************************************************************************************
@@ -1164,11 +1260,7 @@ function getCurrentISODate() {
 function zeroPad(num, places) {
     let zero = places - num.toString().length + 1;
     return Array(+(zero > 0 && zero)).join("0") + num;        
-
-
 } 
-
-
 
 
 /**
@@ -1299,3 +1391,50 @@ function escapeRegExp(inputStr) {
     return inputStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
 }
 
+
+/**
+ * Get all elements of an array if found
+ * @param {array}   arr             the input array
+ * @param {string}  valFind         the value to find
+ * @param {boolean} [exact=true]    OPTIONAL: default is true. if true, it must fully match. if false, it matches also if valRemove is part of element string
+ * @return {array}  an array with all hits or empty array if no hits.
+ */
+function arrayGetElements(arr, valFind, exact) {
+    let resultArr = [];
+    for ( let i = 0; i < arr.length; i++){ 
+        if (exact) {
+            if ( arr[i] === valFind) {
+                resultArr.push(arr[i]);
+            }
+        } else {
+            if (arr[i].indexOf(valFind) != -1) {
+                resultArr.push(arr[i]);
+            }
+        }
+    }
+    return resultArr;
+}
+
+/**
+ * Replace Array element(s) by input value. 
+ * @param {array}   arr             the input array
+ * @param {string}  valReplace      the value to search for
+ * @param {string}  newValue        the new value
+ * @param {boolean} [exact=true]    OPTIONAL: default is true. if true, it must fully match. if false, it matches also if valRemove is part of element string
+ * @return {array}  the array with replaced the element(s)
+ */
+function arrayReplaceElementsByValue(arr, valReplace, newValue, exact) {
+
+    for ( let i = 0; i < arr.length; i++){ 
+        if (exact) {
+            if ( arr[i] === valReplace) {
+                arr[i] = newValue;
+            }
+        } else {
+            if (arr[i].indexOf(valReplace) != -1) {
+                arr[i] = newValue;
+            }
+        }
+    }
+    return arr;
+}
