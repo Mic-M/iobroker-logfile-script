@@ -15,6 +15,7 @@
  
  * ---------------------------
  * Change Log:
+ *  2.01a Mic   Removed constant MERGE_LOGLINES_ACTIVE
  *  2.00a Mic   Major improvements and fixes:
  *              + Change from instant state update to schedule (STATE_UPDATE_SCHEDULE). The instant update, so once
  *                new log entries coming in, caused several issues (setting and getting state values (getState() and 
@@ -141,7 +142,6 @@ const BLACKLIST_GLOBAL = [
  * oder [123 Zeilen] vorangestellt wird anstatt [123 Einträge].
  * HINWEIS: Falls MERGE_LOGLINES_TXT geändert wird: bitte alle Datenpunkte des Scripts löschen und dann Script neu starten.
  */
-const MERGE_LOGLINES_ACTIVE = true;
 const MERGE_LOGLINES_TXT = 'Einträge';
 
 
