@@ -1,36 +1,67 @@
-# iobroker.logfile-script
-Parses log file, applies filters, and sets states for visualization
+# ioBroker-Log-Script
 
-## Installation Instructions
+## 1. Sinn und Zweck
 
-#### 1. Activate node-tail
-This script requires [node-tail](https://github.com/lucagrulla/node-tail). This is how you activate/install it:
-1. Within ioBroker, left menu: select "Instances".
-2. Open your JavaScript-Adapter options, by clicking on "javascript.0" (Script Engine) or similar.
-3. In the field "Additional npm modules", add "tail" (without the quotation marks).
-4. Save.
+Der ioBroker loggt alle Aktionen der Adapter und Scripte entsprechend mit, einzusehen in der ioBroker-Administration, linke Seite Menüpunkt "Log".
+Dieses Script bietet nun folgendes:
+ * Log im VIS darstellen: Entsprechend gefiltert, also etwa nur Warnungen und Fehler, nur Ausgaben eines bestimmten Adapters, usw.
+ * Auf Log-Ereignisse agieren
+ 
+Dabei nimmt das Script jeden neuen Logeintrag des ioBrokers und wendet entsprechend gesetzte Filter an, 
+um den Eintrag dann in den entsprechenden Datenpunkten dieses Scripts abzulegen.
+Es stehen auch JSON-Datenpunkte zur Verfügung, mit diesen kann im vis eine Tabelle ausgegeben werden (z.B. über das Widget 'basic - Table').
 
-#### 2. Get the script into your ioBroker
-1. Copy contents of „iobroker_logfile-script.js“ into the clipboard.
-2. Open your ioBroker adminstration page, navigate to the "Scripts" section, add a new JavaScript and paste the contents.
-3. Change the name of the script e.g. to "Logfile-Script" and save it. Make sure the script is **not** under the Global folder, that's simply not required and not a good idea at all.
-4. Modify the settings in the script accordingly.
-5. Save and activate the script.
 
+## 2. Installation und Einrichtung
+
+### 2.1 node-tail aktivieren
+
+Dieses Script benötigt [node-tail](https://github.com/lucagrulla/node-tail).
+
+#### 2.1.1 Option 1: Hinzufügen im JavaScript-Adapter (empfohlen)
+
+1. Im ioBroker links auf "Instanzen" klicken, dort den JS-Adapter wählen, etwa javascript.0
+2. Unter "Zusätzliche NPM-Module" einfach "tail" (ohne Anführungszeichen) eingeben
+3. Speichern
+
+#### 2.1.2: Option 2: Installation in der Konsole
+Wer das nicht im JS-Adapter hinzufügen möchte, kann auch so vorgehen in der Konsole:
+1. `cd /opt/iobroker/node_modules/iobroker.js-controller/`
+2. `npm install tail`
+
+
+### 2.2 Script in ioBroker hinzufügen
+
+1. [Script-Code](https://raw.githubusercontent.com/Mic-M/iobroker.logfile-script/master/iobroker_logfile-script.js) öffnen.
+2. Alles kopieren (Strg + a)
+3. Zur ioBroker-Administration wechseln und dort im linken Menü "Skripte" auswählen.
+4. Mit dem "+"-Menüpunkt ein neues Script hinzufügen, dann "Javascript" auswählen, und einen Namen vergeben (z.B. "Log-Script") und speichern.
+5. Dieses neue Script öffnen (ist jetzt natürlich noch leer), den zuvor kopierten Code mit Strg+v einfügen und Speichern.
+
+### 2.3 Script einstellen
+
+Das neue Script nun öffnen und gemäß den Angaben im Script bei Bedarf entsprechend einrichten. Speichern nicht vergessen.
+Es funktioniert auch so ohne Änderungen und es werden schon mal Datenpunkte angelegt.
+Weiter einstellen kann man dann auch später.
+
+### 2.4 Script aktivieren
+
+Das Script nun aktivieren. Damit werden nach wenigen Sekunden alle Datenpunkte angelegt und das Script überwacht nun ab sofort das ioBroker-Log.
 
 
 ## Support
-* ioBroker Forum: [Log-Datei aufbereiten für VIS - JavaScript](https://forum.iobroker.net/topic/13971/vorlage-log-datei-aufbereiten-f%C3%BCr-vis-javascript).
+Siehe ioBroker Forum: [Log-Datei aufbereiten für VIS - JavaScript](https://forum.iobroker.net/topic/13971/vorlage-log-datei-aufbereiten-f%C3%BCr-vis-javascript).
+
 
 ## Changelog
 
-* see within the script.
+Siehe im Script.
 
-## Licence
+## Lizenz
 
 MIT License
 
-Copyright (c) 2018 Mic-M
+Copyright (c) 2018-2019 Mic-M
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
