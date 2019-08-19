@@ -1,5 +1,25 @@
 # ioBroker-Log-Script
 
+## Inhalt
+
+- [1. Sinn und Zweck](#1-sinn-und-zweck)
+- [2. Installation und Einrichtung](#2-installation-und-einrichtung)
+  * [2.1 node-tail aktivieren](#21-node-tail-aktivieren)
+    + [2.1.1 Option 1 - empfohlen: Hinzufügen im JavaScript-Adapter](#211-option-1---empfohlen--hinzuf-gen-im-javascript-adapter)
+    + [2.1.2: Option 2: Installation in der Konsole](#212--option-2--installation-in-der-konsole)
+  * [2.2 Script in ioBroker hinzufügen](#22-script-in-iobroker-hinzuf-gen)
+  * [2.3 Script einstellen](#23-script-einstellen)
+  * [2.4 Script aktivieren](#24-script-aktivieren)
+- [3. Log-Ausgaben im VIS darstellen](#3-log-ausgaben-im-vis-darstellen)
+- [4. Auf Log-Ereignisse reagieren](#4-auf-log-ereignisse-reagieren)
+- [5. Weiteres](#5-weiteres)
+  * [Support](#support)
+  * [Changelog](#changelog)
+  * [Lizenz](#lizenz)
+
+<small><i><a href='http://ecotrust-canada.github.io/markdown-toc/'>Table of contents generated with markdown-toc</a></i></small>
+
+
 ## 1. Sinn und Zweck
 
 Der ioBroker loggt alle Aktionen der Adapter und Scripte entsprechend mit, einzusehen in der ioBroker-Administration, linke Seite Menüpunkt "Log".
@@ -18,7 +38,7 @@ Es stehen auch JSON-Datenpunkte zur Verfügung, mit diesen kann im vis eine Tabe
 
 Dieses Script benötigt [node-tail](https://github.com/lucagrulla/node-tail).
 
-#### 2.1.1 Option 1: Hinzufügen im JavaScript-Adapter (empfohlen)
+#### 2.1.1 Option 1 - empfohlen: Hinzufügen im JavaScript-Adapter
 
 1. Im ioBroker links auf "Instanzen" klicken, dort den JS-Adapter wählen, etwa javascript.0
 2. Unter "Zusätzliche NPM-Module" einfach "tail" (ohne Anführungszeichen) eingeben
@@ -48,16 +68,25 @@ Weiter einstellen kann man dann auch später.
 
 Das Script nun aktivieren. Damit werden nach wenigen Sekunden alle Datenpunkte angelegt und das Script überwacht nun ab sofort das ioBroker-Log.
 
+## 3. Log-Ausgaben im VIS darstellen
 
-## Support
-Siehe ioBroker Forum: [Log-Datei aufbereiten für VIS - JavaScript](https://forum.iobroker.net/topic/13971/vorlage-log-datei-aufbereiten-f%C3%BCr-vis-javascript).
+Anleitung folgt bald.
+
+## 4. Auf Log-Ereignisse reagieren
+
+Anleitung folgt bald.
+
+## 5. Weiteres
+
+### Support
+Support erhaltet ihr hier im ioBroker Forum: [Log-Datei aufbereiten für VIS - JavaScript](https://forum.iobroker.net/topic/13971/vorlage-log-datei-aufbereiten-f%C3%BCr-vis-javascript).
 
 
-## Changelog
+### Changelog
 
 Siehe im Script.
 
-## Lizenz
+### Lizenz
 
 MIT License
 
