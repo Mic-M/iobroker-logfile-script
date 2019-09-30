@@ -15,8 +15,10 @@
  
  * ---------------------------
  * Change Log:
- *  2.01a Mic   Removed constant MERGE_LOGLINES_ACTIVE
- *  2.00a Mic   Major improvements and fixes:
+ *  2.0.2 Mic   + Changed certain functions to async to get rid of setTimout() and for the sake of better error handling.
+ *              + startTailingProcess(): ensure the tailing starts if the file is present (wait to be created)
+ *  2.0.1a Mic  Removed constant MERGE_LOGLINES_ACTIVE
+ *  2.0.0a Mic  Major improvements and fixes:
  *              + Change from instant state update to schedule (STATE_UPDATE_SCHEDULE). The instant update, so once
  *                new log entries coming in, caused several issues (setting and getting state values (getState() and 
  *                setState()) within <1ms simply does not work.
@@ -407,16 +409,19 @@ function init() {
 /*************************************************************************************************************************
  * Main Function. Will be restarted every midnight by G_Schedule_Midnight.
  *************************************************************************************************************************/
-function main() {
+async function main() {
 
     // First, we end the tailing. 
-    endTailingProcess();
+    await endTailingProcess();     // now wait for endTailingProcess()...
 
-    // Next, we start the tailing process.
-    setTimeout(startTailingProcess, 2000);
+    // Next, we start the new tailing process.
+    let startTailingResult = await startTailingProcess();  // now wait for startTailingProcess()...
 
-    // Monitor log changes
-    setTimeout(monitorLogChanges, 3000);
+    if (startTailingResult) {
+        monitorLogChanges();
+    } else {
+        log('monitorLogChanges not executed as starting new Tailing Process was not successful', 'error');
+    }
 
 }
 
@@ -748,9 +753,11 @@ function processLogArrayAndSetStates(arrayLogInput) {
  *************************************************************************************************************************/
 
 /**
- * Start new tailing process
+ * Start new tailing process.
  */
-function startTailingProcess() {
+async function startTailingProcess() {
+
+    let tailStarted = false; // This 
 
     // Path to iobroker log file
     let strFsFullPath = getCurrentFullFsLogPath();
@@ -761,17 +768,28 @@ function startTailingProcess() {
     const fs = require('fs');
     if (fs.existsSync(strFsFullPath)) {
         // File is existing
+        startTail();
     } else {
         // File is not existing, so we create it.
         if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'Log file is not existing, so we need to create a blank file.');
         fs.writeFile(strFsFullPath, '', function(err) {
-            if(err) return log(err);
+            if (err) {
+                log('The log file [' + strFsFullPath + '] could not be created.', 'error');
+                return log('fs.writeFile Error: ' + err, 'error');
+            } else {
+                startTail();
+            }
         }); 
     }
 
-    // Now start new tailing instance
-    if(LOG_INFO) log('Start new Tail process. File path to current log: [' + strFsFullPath + ']');
-    G_tail = new G_Tail(strFsFullPath, G_tailOptions);
+    function startTail() {
+        // Now start new tailing instance
+        if(LOG_INFO) log('Start new Tail process. File path to current log: [' + strFsFullPath + ']');
+        G_tail = new G_Tail(strFsFullPath, G_tailOptions);
+        tailStarted = true;
+    }
+
+    return tailStarted; // We return true/false since this is an async function.
 
 }
 
@@ -786,27 +804,22 @@ function restartTailingProcess() {
     startTailingProcess();
 }
 
-/**************
- * End the tailing process
- **************/
 
-function endTailingProcess() {
- 
-																  
-
-    /**
-     * End the tailing gracefully.
-     * Exit process: see here: https://stackoverflow.com/questions/5266152/how-to-exit-in-node-js/37592669#37592669
-     */
+/**
+ * End the tailing gracefully.
+ * Exit process: see here: https://stackoverflow.com/questions/5266152/how-to-exit-in-node-js/37592669#37592669
+ */
+async function endTailingProcess() {
 
     // Properly set the exit code while letting the process exit gracefully.
-        if ( typeof G_tail !== 'undefined' && G_tail ) {
-            G_tail.unwatch(); // just in case.
-            G_tail.exitCode = 1;
-            if(LOG_DEBUG) log('Properly end the existing Tail process.');
-        } else {
-            if(LOG_DEBUG) log('Tail process was not active, so nothing to stop.');
-        }
+    if ( typeof G_tail !== 'undefined' && G_tail ) {
+        G_tail.unwatch(); // just in case.
+        G_tail.exitCode = 1;
+        if(LOG_DEBUG) log('Properly end the existing Tail process.');
+    } else {
+        if(LOG_DEBUG) log('Tail process was not active, so nothing to stop.');
+    }
+    return; // async return
 }
 
 
@@ -1219,9 +1232,10 @@ function cleanArray(inputArray) {
 
 /**
  * Checks if Array or String is not undefined, null or empty.
+ * 08-Sep-2019: added check for [ and ] to also catch arrays with empty strings.
  * @param inputVar - Input Array or String, Number, etc.
  * @return true if it is undefined/null/empty, false if it contains value(s)
- * Array or String containing just whitespaces or >'< or >"< is considered empty
+ * Array or String containing just whitespaces or >'< or >"< or >[< or >]< is considered empty
  */
 function isLikeEmpty(inputVar) {
     if (typeof inputVar !== 'undefined' && inputVar !== null) {
@@ -1229,6 +1243,8 @@ function isLikeEmpty(inputVar) {
         strTemp = strTemp.replace(/\s+/g, ''); // remove all whitespaces
         strTemp = strTemp.replace(/\"+/g, "");  // remove all >"<
         strTemp = strTemp.replace(/\'+/g, "");  // remove all >'<
+        strTemp = strTemp.replace(/\[+/g, "");  // remove all >[<
+        strTemp = strTemp.replace(/\]+/g, "");  // remove all >]<
         if (strTemp !== '') {
             return false;
         } else {
@@ -1338,10 +1354,13 @@ function strMatchesTerms(strInput, arrayTerms, type) {
  * Set strict to true if the state shall match exactly. If it is false, it will add a wildcard * to the end.
  * See: https://forum.iobroker.net/topic/11354/
  * @param {string}    strStatePath     Input string of state, like 'javas-cript.0.switches.Osram.Bedroom'
- * @param {boolean}   [strict=false]   Optional: if true, it will work strict, if false, it will add a wildcard * to the end of the string
+ * @param {boolean}   [strict=true]    Optional: Default is true. If true, it will work strict, if false, it will add a wildcard * to the end of the string
  * @return {boolean}                   true if state exists, false if not
  */
 function isState(strStatePath, strict) {
+
+    if(strict === undefined) strict = true;
+
     let mSelector;
     if (strict) {
         mSelector = $('state[id=' + strStatePath + '$]');
