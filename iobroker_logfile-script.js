@@ -8,13 +8,25 @@
  * Filter an, um den Eintrag dann in den entsprechenden Datenpunkten dieses Scripts abzulegen.
  
  * Es stehen auch JSON-Datenpunkte zur Verfügung, mit diesen kann im vis eine
- * Tabelle ausgegeben werden (z.B. über das Widget 'basic - Table')-
+ * Tabelle ausgegeben werden (z.B. über das Widget 'basic - Table').
  *
  * Aktuelle Version:    https://github.com/Mic-M/iobroker.logfile-script
  * Support:             https://forum.iobroker.net/topic/13971/vorlage-log-datei-aufbereiten-f%C3%BCr-vis-javascript
- 
- * ---------------------------
+ *
+ * =====================================================================================
+ * !!!!!!! WICHTIG !!!!!!!
+ * Dieses Script benötigt die JavaScript-Adapter-Version 4.3.0 (2019-10-09) oder höher.
+ * Wer eine ältere Version einsetzt: Bitte Script-Version 2.0.2 verwenden.
+ * =====================================================================================
+ * -----------------------------------------------------------------------------------------------------------------------
  * Change Log:
+ *  3.1 Mic     + Change to stable as tests were successful
+ *              + Add new option REMOVE_PID: The js-controller version 2.0+ adds the PID number inside brackets 
+ *                to the beginning of the message. Setting REMOVE_PID = false will remove it.
+ *  3.0Alpha Mic + Major Change: JavaScript adapter 4.3+ now provides onLog() function: 
+ *                 https://github.com/ioBroker/ioBroker.javascript/blob/master/docs/en/javascript.md#onlog 
+ *                 We are using this new function to streamline this log script tremendously and to remove node-tail.
+ *  ---------------------------------------------------------------------------------------------------- 
  *  2.0.2 Mic   + Changed certain functions to async to get rid of setTimout() and for the sake of better error handling.
  *              + startTailingProcess(): ensure the tailing starts if the file is present (wait to be created)
  *  2.0.1a Mic  Removed constant MERGE_LOGLINES_ACTIVE
@@ -75,26 +87,6 @@
  *******************************************************************************/
 
 /*******************************************************************************
- * WICHTIG - INSTALLATION
- ******************************************************************************/
-/**
- * --------------------------------------------------------------------------
- * Dieses Script benötigt node-tail (https://github.com/lucagrulla/node-tail).
- * --------------------------------------------------------------------------
- * Option 1: Hinzufügen im JavaScript-Adapter:
- *    1. Im ioBroker links auf "Instanzen" klicken, dort den JS-Adapter wählen, etwa javascript.0
- *    2. Unter "Zusätzliche NPM-Module" einfach "tail" (ohne Anführungszeichen) eingeben
- *    3. Speichern
- * 
- * Option 2: Installation in der Konsole:
- *    Wer das nicht im JS-Adapter hinzufügen möchte, kann auch so vorgehen:
- *    1. cd /opt/iobroker/node_modules/iobroker.js-controller/
- *    2. npm install tail
- */
-
-
-
-/*******************************************************************************
  * Konfiguration: Pfade
  ******************************************************************************/
 // Pfad, unter dem die States (Datenpunkte) in den Objekten angelegt werden.
@@ -116,6 +108,11 @@ const LOG_NO_OF_ENTRIES = 100;
 // Sortierung der Logeinträge: true für descending (absteigend, also neuester oben), oder false für ascending (aufsteigend, also ältester oben)
 // Empfohlen ist true, damit neueste Einträge immer oben stehen.
 const L_SORT_ORDER_DESC = true;
+
+// Der js-Controller Version 2.0 oder größer fügt Logs teils vorne die PID in Klammern hinzu, 
+// also z.B. "(12234) Terminated (15): Without reason". 
+// Mit dieser Option lassen sich die PIDs aus den Logzeilen entfernen.
+const REMOVE_PID = true;
 
 /**
  * Schwarze Liste (Black list)
@@ -358,14 +355,8 @@ const DEBUG_EXTENDED_NO_OF_CHARS = 120;
 // We added an additional backslash '\' to each backslash as these need to be escaped.
 const MERGE_REGEX_PATT = '^\\[(\\d+)\\s' + escapeRegExp(MERGE_LOGLINES_TXT) + '\\]\\s(.*)';
 
-
-// This script requires tail. https://github.com/lucagrulla/node-tail
-let G_Tail = require('tail').Tail; // Please ignore the red wavy underline. The JavaScript editor does not recognize if node-tail is installed
-let G_tailOptions= {separator: /[\r]{0,1}\n/, fromBeginning: false}
-let G_tail; // being set later
-
-// Schedule for every midnight. So not set at this point.
-let G_Schedule_Midnight; // being set later
+// Log Handler variable for ioBroker function onLog()
+let G_LogHandler;  // being set later
 
 // Schedule for logfile update
 let G_Schedule_StateUpdate; // being set later
@@ -376,102 +367,75 @@ let G_NewLogLinesArrayToProcess = [];
 /*************************************************************************************************************************
  * init - This is executed on every script (re)start.
  *************************************************************************************************************************/
-// We do some timing here with setTimeout() to avoid warnings like if states not yet exist, etc.
-
 init();
 function init() {
     
     // Create our states, if not yet existing.
     createLogStates();
 
-    // States should have been created, so continue
-    setTimeout(function(){    
+    // Unsubscribe log handler
+    onLogUnregister(G_LogHandler);
+
+    setTimeout(function() {    
 
         // Subscribe on changes: Pressed button "clearJSON"
         subscribeClearJson();
 
-        // Start main function.
-        main();
+        // Subscribe to log handler
+        G_LogHandler = onLog('*', data => {
+            processNewLogLine(data);
+        });
+
 
         // Schedule writing changes into states
         clearSchedule(G_Schedule_StateUpdate);
         G_Schedule_StateUpdate = schedule(STATE_UPDATE_SCHEDULE, processNewLogsPerSchedule);
 
-        // Every midnight at 0:00, we have a new log file. So, we schedule accordingly.
-        clearSchedule(G_Schedule_Midnight);
-        G_Schedule_Midnight = schedule('0 0 * * *', main);
+        // Message
+        if (LOG_INFO) log('Start monitoring of the ioBroker log...', 'info');
 
     }, 2000);
 
 }
 
-
-/*************************************************************************************************************************
- * Main Function. Will be restarted every midnight by G_Schedule_Midnight.
- *************************************************************************************************************************/
-async function main() {
-
-    // First, we end the tailing. 
-    await endTailingProcess();     // now wait for endTailingProcess()...
-
-    // Next, we start the new tailing process.
-    let startTailingResult = await startTailingProcess();  // now wait for startTailingProcess()...
-
-    if (startTailingResult) {
-        monitorLogChanges();
-    } else {
-        log('monitorLogChanges not executed as starting new Tailing Process was not successful', 'error');
-    }
-
-}
-
-
-
-
-function monitorLogChanges() {
+function processNewLogLine(data) {
     
-    if (LOG_INFO) log('Start monitoring of the ioBroker log...')
+    // Convert to Log Line
+    // TODO: This is a quick implementation of new function onLog().
+    //       We need to entirely rewrite script later to fully use the data object.
+    //       However, at this time, we convert it to a standard log line being expected.
 
-    G_tail.on('line', function(newLogEntry) {
-        // Check if we have DEBUG_IGNORE_STR in the new log line
-        if(! newLogEntry.includes(DEBUG_IGNORE_STR)) {
+    // First, remove PID if desired
+    let msg = data.message;
+    if (REMOVE_PID) msg = removePID(msg);
 
-            if (newLogEntry.length > 45) {  // a log line with less than 45 chars is not a valid log line.
+    // Now convert to log line
+    let newLogEntry = timestampToLogDate(data.ts) + '  - [32m' + data.severity + '[39m: ' + msg;
 
-                // Cleanse and apply blacklist
-                newLogEntry = cleanseLogLine(newLogEntry);
+    // Check if we have DEBUG_IGNORE_STR in the new log line
+    if(! newLogEntry.includes(DEBUG_IGNORE_STR)) {
 
-                // Push result into logArrayFinal
-                G_NewLogLinesArrayToProcess.push(newLogEntry);
+        if (newLogEntry.length > 45) {  // a log line with less than 45 chars is not a valid log line.
 
-                // some debugging
-                if (LOG_DEBUG) log (DEBUG_IGNORE_STR + '===============================================================');
-                if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'New Log Entry, Len (' + newLogEntry.length + '), content: [' + newLogEntry + ']');
+            // Cleanse and apply blacklist
+            newLogEntry = cleanseLogLine(newLogEntry);
 
-                // This is for debugging purposes, and it will log every new log entry once again. See DEBUG_EXTENDED option above.
-                if (DEBUG_EXTENDED) {
-                    if (! newLogEntry.includes(DEBUG_EXTENDED_STR)) { // makes sure no endless loop here.
-                        log(DEBUG_EXTENDED_STR + newLogEntry.substring(0, DEBUG_EXTENDED_NO_OF_CHARS));
-						 
-                    }
+            // Push result into logArrayFinal
+            G_NewLogLinesArrayToProcess.push(newLogEntry);
+
+            // some debugging
+            if (LOG_DEBUG) log (DEBUG_IGNORE_STR + '===============================================================');
+            if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'New Log Entry, Len (' + newLogEntry.length + '), content: [' + newLogEntry + ']');
+
+            // This is for debugging purposes, and it will log every new log entry once again. See DEBUG_EXTENDED option above.
+            if (DEBUG_EXTENDED) {
+                if (! newLogEntry.includes(DEBUG_EXTENDED_STR)) { // makes sure no endless loop here.
+                    log(DEBUG_EXTENDED_STR + newLogEntry.substring(0, DEBUG_EXTENDED_NO_OF_CHARS));
+                        
                 }
             }
         }
-    });
-
-    G_tail.on('error', function(error) {
-        // Error Handling
-        log('Tail error', error);
-        if (error.includes('ENOENT: no such file or directory')) {
-            // It looks like the log file was deleted. So we restart process.
-            // Will also create a new log file if not existing.
-            restartTailingProcess();
-            log('Tail process re-started due to file/directory not found error. It will create a new log file if it has been deleted.', 'warn')
-        } else {
-            log('Tailing process ended by the log script due to this error.', 'warn');
-            endTailingProcess();
-        }
-    });
+    }
 
 }
 
@@ -685,7 +649,6 @@ function processLogArrayAndSetStates(arrayLogInput) {
             ///////////////////////////////
             // -2- JSON, with elements date and msg
             ///////////////////////////////
-
             // Let's put together the JSON
             let jsonArr = [];
             for (let j = 0; j < lpNewFinalLogArrayJSON.length; j++) {
@@ -699,7 +662,6 @@ function processLogArrayAndSetStates(arrayLogInput) {
                     // Build the final Array
                     // ++++++
                     // We need this section to generate the JSON with the columns (which ones, and order) as specified in LOG_FILTER
-
                     let objectJSONentry = {}; // object (https://stackoverflow.com/a/13488998)
                     if (isLikeEmpty(LOG_FILTER[k].columns)) log('Columns not specified in LOG_FILTER', 'warn');
                     // Prepare CSS
@@ -746,84 +708,6 @@ function processLogArrayAndSetStates(arrayLogInput) {
         }
     }
 }
-
-
-/*************************************************************************************************************************
- * Tailing functions
- *************************************************************************************************************************/
-
-/**
- * Start new tailing process.
- */
-async function startTailingProcess() {
-
-    let tailStarted = false; // This 
-
-    // Path to iobroker log file
-    let strFsFullPath = getCurrentFullFsLogPath();
-
-    // Create a new log file. It will created if it is not yet existing.
-    // This will avoid an error if right after midnight the log file is not yet there
-																											 
-    const fs = require('fs');
-    if (fs.existsSync(strFsFullPath)) {
-        // File is existing
-        startTail();
-    } else {
-        // File is not existing, so we create it.
-        if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'Log file is not existing, so we need to create a blank file.');
-        fs.writeFile(strFsFullPath, '', function(err) {
-            if (err) {
-                log('The log file [' + strFsFullPath + '] could not be created.', 'error');
-                return log('fs.writeFile Error: ' + err, 'error');
-            } else {
-                startTail();
-            }
-        }); 
-    }
-
-    function startTail() {
-        // Now start new tailing instance
-        if(LOG_INFO) log('Start new Tail process. File path to current log: [' + strFsFullPath + ']');
-        G_tail = new G_Tail(strFsFullPath, G_tailOptions);
-        tailStarted = true;
-    }
-
-    return tailStarted; // We return true/false since this is an async function.
-
-}
-
-/************************
- * Restart Tail.
- ************************/
-function restartTailingProcess() {
-    // End tailing
-    endTailingProcess();
-
-    // Start new TAIL process, as we have a new log file every 0:00.
-    startTailingProcess();
-}
-
-
-/**
- * End the tailing gracefully.
- * Exit process: see here: https://stackoverflow.com/questions/5266152/how-to-exit-in-node-js/37592669#37592669
- */
-async function endTailingProcess() {
-
-    // Properly set the exit code while letting the process exit gracefully.
-    if ( typeof G_tail !== 'undefined' && G_tail ) {
-        G_tail.unwatch(); // just in case.
-        G_tail.exitCode = 1;
-        if(LOG_DEBUG) log('Properly end the existing Tail process.');
-    } else {
-        if(LOG_DEBUG) log('Tail process was not active, so nothing to stop.');
-    }
-    return; // async return
-}
-
-
-
 
 /**
  * This will allow to set Json log to zero if button is pressed.
@@ -880,10 +764,14 @@ function formatLogDateStr(strDate, format) {
  * @return {string}             The cleaned log line
  */
 function cleanseLogLine(logLine) {
-    let logLineResult = logLine.replace(/\u001b\[.*?m/g, ''); // Remove color escapes - https://stackoverflow.com/questions/25245716/remove-all-ansi-colors-styles-from-strings
-    if (logLineResult.substr(0,9) === 'undefined') logLineResult = logLineResult.substr(9,99999); // sometimes, a log line starts with the term "undefined", so we remove it.
-    logLineResult = logLineResult.replace(/\s\s+/g, ' '); // Remove white space, tab stops, new line
-    if(strMatchesTerms(logLineResult, BLACKLIST_GLOBAL, 'blacklist')) logLineResult = ''; // Check against global blacklist
+    // Remove color escapes - https://stackoverflow.com/questions/25245716/remove-all-ansi-colors-styles-from-strings
+    let logLineResult = logLine.replace(/\u001b\[.*?m/g, ''); 
+    // Sometimes, a log line starts with the term "undefined", so we remove it.
+    if (logLineResult.substr(0,9) === 'undefined') logLineResult = logLineResult.substr(9,99999);
+    // Remove white space, tab stops, new line
+    logLineResult = logLineResult.replace(/\s\s+/g, ' ');
+    // Check against global blacklist
+    if(strMatchesTerms(logLineResult, BLACKLIST_GLOBAL, 'blacklist')) logLineResult = '';
 
 
     return logLineResult;
@@ -953,7 +841,6 @@ function logLineSplit(inputValue) {
     ) {
        return false; // no valid hits
     }
-
     // We can return the array now, since it meets all requirements
     return returnObj;
 
@@ -1092,7 +979,6 @@ function getCurrentFullFsLogPath() {
 function clearJsonByDate(inputArray, stateForTimeStamp) {
     let dtState = new Date(getState(stateForTimeStamp).ts);
     if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'Time of last change of state [' + stateForTimeStamp + ']: ' + dtState);
-
     let newArray = [];
     for (let lpLog of inputArray) {
         let dtLog = new Date(lpLog.substr(0,23));
@@ -1129,13 +1015,13 @@ function createLogStates() {
                 let lpRetiredState = LOG_STATE_PATH + '.log' + lpIDClean + '.logMostRecent';
                 if (isState(lpRetiredState, true))  {
                     deleteState(lpRetiredState);
-                    if (LOG_INFO) log('Remove retired state: ' + lpRetiredState);
+                    if (LOG_INFO) log('Remove retired state: ' + lpRetiredState, 'info');
                 }
                 // State .clearJSONtime removed with script version 1.2 onwards as we use now time stamp of button '.clearJSON'.
                 lpRetiredState = LOG_STATE_PATH + '.log' + lpIDClean + '.clearJSONtime';
                 if (isState(lpRetiredState, true))  {
                     deleteState(lpRetiredState);
-                    if (LOG_INFO) log('Remove retired state: ' + lpRetiredState);
+                    if (LOG_INFO) log('Remove retired state: ' + lpRetiredState, 'info');
                 }
 																																														  
             }
@@ -1179,20 +1065,65 @@ function logFilterGetValueByKey(id, element) {
 }
 
 
+/**
+ * Converts a timestamp to log date format, like 2019-10-15 16:38:00.260.
+ * @param {object}  timeStamp   The date/time timestamp to convert.
+ * @return {string} The resulting log date format as string.
+ */
+function timestampToLogDate(timeStamp) {
+
+    let date = new Date(timeStamp);
+    // Need to convert to local time as this time provided from onLog() is UTC
+    // https://stackoverflow.com/questions/6525538/convert-utc-date-time-to-local-date-time/18330682
+    let localDate = new Date(date.getTime() - date.getTimezoneOffset()*60*1000);
+
+    // Convert to ISO string, so like 2019-10-15T16:38:00.260Z
+    let strResult = localDate.toISOString();
+
+    // date.toISOString() adds T and Z, so we remove these letters, as the log do not show these.
+    strResult = strResult.replace('T', ' ');  // remove T
+    strResult = strResult.replace('Z', '');  // remove Z at the end
+    return strResult;
+
+}
+
+/**
+ * Remove PID in log message 
+ * The js-controller version 2.0+ adds the PID number inside brackets to the beginning of the message. We remove it here.
+ * @param {string} msg   The log message, like: 'javascript.0 (123) Logtext 123 Logtext 123 Logtext 123 Logtext 123'
+ */
+function removePID(msg) {
+
+    // First: Split source and message text. 
+    // Input is like: 'javascript.0 (123) Logtext 123 Logtext 123 Logtext 123 Logtext 123'
+    let regexp = /^(\S+)\s(.*)/;
+    let matches_array = msg.match(regexp);
+    let strFirst = matches_array[1];    // like 'javascript.0'
+    let strRest = matches_array[2];     // like '(123) Logtext 123 Logtext 123 Logtext 123 Logtext 123'
+    
+    // Next, we remove the PID
+    strRest = strRest.replace(/^\([0-9]{1,9}\)\s/, '');
+
+    // Last, we put the two strings together again
+    return strFirst + ' ' + strRest;
+
+}
+
+
+
+
 /*************************************************************************************************************************
  * onStop - Being executed once this ioBroker Script stops. 
  *************************************************************************************************************************/
 // This is to end the Tale. Not sure, if we indeed need it, but just in case...
 onStop(function myScriptStop () {
 
-    endTailingProcess();
-
-    clearSchedule(G_Schedule_Midnight);
-    clearSchedule(G_Schedule_StateUpdate);
-
-    if (LOG_INFO) log('Stop LogScript gracefully.');
+    // Unsubscribe log handler
+    onLogUnregister(G_LogHandler);
+    if (LOG_INFO) log('Unsubscribed to Log Handler.', 'info');
 
 }, 0);
+
 
 
 /*************************************************************************************************************************
