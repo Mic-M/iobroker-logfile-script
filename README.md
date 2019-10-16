@@ -4,9 +4,7 @@
 
 - [1. Sinn und Zweck](#1-sinn-und-zweck)
 - [2. Installation und Einrichtung](#2-installation-und-einrichtung)
-  * [2.1 node-tail aktivieren](#21-node-tail-aktivieren)
-    + [2.1.1 Option 1 - empfohlen: Hinzufügen im JavaScript-Adapter](#211-option-1---empfohlen--hinzuf-gen-im-javascript-adapter)
-    + [2.1.2: Option 2: Installation in der Konsole](#212--option-2--installation-in-der-konsole)
+  * [2.1 Wichtig](#21-wichtig)
   * [2.2 Script in ioBroker hinzufügen](#22-script-in-iobroker-hinzuf-gen)
   * [2.3 Script einstellen](#23-script-einstellen)
   * [2.4 Script aktivieren](#24-script-aktivieren)
@@ -34,21 +32,9 @@ Es stehen auch JSON-Datenpunkte zur Verfügung, mit diesen kann im vis eine Tabe
 
 ## 2. Installation und Einrichtung
 
-### 2.1 node-tail aktivieren
+### 2.1 Wichtig
 
-Dieses Script benötigt [node-tail](https://github.com/lucagrulla/node-tail).
-
-#### 2.1.1 Option 1 - empfohlen: Hinzufügen im JavaScript-Adapter
-
-1. Im ioBroker links auf "Instanzen" klicken, dort den JS-Adapter wählen, etwa javascript.0
-2. Unter "Zusätzliche NPM-Module" einfach "tail" (ohne Anführungszeichen) eingeben
-3. Speichern
-
-#### 2.1.2: Option 2: Installation in der Konsole
-Wer das nicht im JS-Adapter hinzufügen möchte, kann auch so vorgehen in der Konsole:
-1. `cd /opt/iobroker/node_modules/iobroker.js-controller/`
-2. `npm install tail`
-
+Dieses Script setzt den [JavaScript-Adapter](https://github.com/iobroker/ioBroker.javascript/blob/master/README.md) in der Version 4.3.0 oder höher voraus. Wer eine ältere Version verwendet, muss das Script in der [Version 2.0.2](https://github.com/Mic-M/iobroker.logfile-script/tree/9b0981cd45dc54ebe79c9fefc7317f3e29b0bae9) verwenden.
 
 ### 2.2 Script in ioBroker hinzufügen
 
