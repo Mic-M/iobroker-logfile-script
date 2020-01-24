@@ -77,7 +77,7 @@ Siehe im Script.
 
 MIT License
 
-Copyright (c) 2018-2019 Mic-M
+Copyright (c) 2018-2020 Mic-M
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
