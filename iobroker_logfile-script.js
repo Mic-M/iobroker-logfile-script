@@ -96,7 +96,11 @@
  ******************************************************************************/
 // Pfad, unter dem die States (Datenpunkte) in den Objekten angelegt werden.
 // Kann man so bestehen lassen.
-const LOG_STATE_PATH = 'javascript.'+ instance + '.' + 'Log-Script';
+// Wichtig: wir legen diese unterhalb 0_userdata.0 an, nicht unter javascript.0.
+// Beispiel: 
+//    LOG_STATE_PATH = 'Log-Script';
+//    --> Datenpunkte werden abgelegt unterhalb von "0_userdata.0.Log-Script"
+const LOG_STATE_PATH = 'Log-Script';
 
 // Pfad zum Log-Verzeichnis auf dem Server.
 // Standard-Pfad unter Linux: '/opt/iobroker/log/'. Wenn das bei dir auch so ist, dann einfach belassen.
