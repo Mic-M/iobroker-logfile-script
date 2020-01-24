@@ -34,7 +34,8 @@ Es stehen auch JSON-Datenpunkte zur Verfügung, mit diesen kann im vis eine Tabe
 
 ### 2.1 Wichtig
 
-Dieses Script setzt den [JavaScript-Adapter](https://github.com/iobroker/ioBroker.javascript/blob/master/README.md) in der Version 4.3.0 oder höher voraus. Wer eine ältere Version verwendet, muss das Script in der [Version 2.0.2](https://github.com/Mic-M/iobroker.logfile-script/tree/9b0981cd45dc54ebe79c9fefc7317f3e29b0bae9) verwenden.
+1. In der Instanz des JavaScript-Adapters die Option `Erlaube das Kommando "setObject"` aktivieren. Dies ist notwendig, damit die Datenpunkte unterhalb von `0_userdata.0` angelegt werden mittels Script [github.com/Mic-M/iobroker.createUserStates](https://github.com/Mic-M/iobroker.createUserStates). Wer das nicht möchte: bitte Script-Version 3.1 verwenden.
+2. Dieses Script setzt den [JavaScript-Adapter](https://github.com/iobroker/ioBroker.javascript/blob/master/README.md) in der Version 4.3.0 oder höher voraus. Wer eine ältere Version verwendet, muss das Script in der [Version 2.0.2](https://github.com/Mic-M/iobroker.logfile-script/tree/9b0981cd45dc54ebe79c9fefc7317f3e29b0bae9) verwenden.
 
 ### 2.2 Script in ioBroker hinzufügen
 
