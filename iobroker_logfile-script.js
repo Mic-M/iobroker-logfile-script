@@ -24,6 +24,7 @@
  * =====================================================================================
  * -----------------------------------------------------------------------------------------------------------------------
  * Change Log:
+ *  3.3 Mic     - Fix state path
  *  3.2 Mic     + Create all states under 0_userdata.0, and no longer under javascript.<instance> (like javascript.0)
  *  3.1 Mic     + Change to stable as tests were successful
  *              + Add new option REMOVE_PID: The js-controller version 2.0+ adds the PID number inside brackets 
@@ -361,7 +362,7 @@ const DEBUG_EXTENDED_NO_OF_CHARS = 120;
  *************************************************************************************************************************/
 
 // Final state path
-const FINAL_LOG_STATE_PATH = '0_userdata.0.' + 'Log-Script';
+const FINAL_LOG_STATE_PATH = '0_userdata.0.' + LOG_STATE_PATH;
 
 // Merge loglines: define pattern (and escape the merge text)
 // We added an additional backslash '\' to each backslash as these need to be escaped.
