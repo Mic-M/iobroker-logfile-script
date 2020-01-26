@@ -1,4 +1,4 @@
-/*******************************************************************************
+/*************************************************************************************************************************
  * ---------------------------
  * Log Script für ioBroker zum Aufbereiten des Logs für Visualisierungen (vis), oder um
  * auf Log-Ereignisse zu reagieren.
@@ -10,20 +10,20 @@
  * Es stehen auch JSON-Datenpunkte zur Verfügung, mit diesen kann im vis eine
  * Tabelle ausgegeben werden (z.B. über das Widget 'basic - Table').
  *
- * Aktuelle Version:    https://github.com/Mic-M/iobroker.logfile-script
- * Support:             https://forum.iobroker.net/topic/13971/vorlage-log-datei-aufbereiten-f%C3%BCr-vis-javascript
- *
- * =====================================================================================
- * !!!!!!! VORAUSSETZUNGEN !!!!!!!
- * 1.) In der Instanz des JavaScript-Adapters die Option [Erlaube das Kommando "setObject"] aktivieren.
- *     Das ist notwendig, damit die Datenpunkte unterhalb von 0_userdata.0 angelegt werden mittels Script:
- *     https://github.com/Mic-M/iobroker.createUserStates
- *     Wer das nicht möchte: bitte Script-Version 3.1 verwenden.
+ * Aktuelle Version: https://github.com/Mic-M/iobroker.logfile-script
+ * Support:          https://forum.iobroker.net/topic/13971/vorlage-log-datei-aufbereiten-f%C3%BCr-vis-javascript
+ * Autor:            Mic (ioBroker) | Mic-M (github)
+ * -----------------------------------------------------------------------------------------------------------------------
+ * VORAUSSETZUNGEN
+ * 1.) Nur falls Datenpunkte unterhalb '0_userdata.0' abgelegt werden sollen:
+ *     In der Instanz des JavaScript-Adapters die Option [Erlaube das Kommando "setObject"] aktivieren.
+ *     Siehe auch: https://github.com/Mic-M/iobroker.createUserStates
  * 2.) Dieses Script benötigt die JavaScript-Adapter-Version 4.3.0 (2019-10-09) oder höher.
  *     Wer eine ältere Version einsetzt: Bitte Script-Version 2.0.2 verwenden.
  * =====================================================================================
  * -----------------------------------------------------------------------------------------------------------------------
  * Change Log:
+ *  3.4 Mic     + Support both '0_userdata.0' and 'javascript.x' for state creation
  *  3.3 Mic     - Fix state path
  *  3.2 Mic     + Create all states under 0_userdata.0, and no longer under javascript.<instance> (like javascript.0)
  *  3.1 Mic     + Change to stable as tests were successful
@@ -90,18 +90,15 @@
  *           - Several fixes
  *  0.2  Mic - Bug fix: corrected wrong function name
  *  0.1  Mic * Initial release
- *******************************************************************************/
+ ************************************************************************************************************************/
 
 /*******************************************************************************
  * Konfiguration: Pfade
  ******************************************************************************/
 // Pfad, unter dem die States (Datenpunkte) in den Objekten angelegt werden.
-// Kann man so bestehen lassen.
-// Wichtig: wir legen diese unterhalb 0_userdata.0 an, nicht unter javascript.0.
-// Beispiel: 
-//    LOG_STATE_PATH = 'Log-Script';
-//    --> Datenpunkte werden abgelegt unterhalb von "0_userdata.0.Log-Script"
-const LOG_STATE_PATH = 'Log-Script';
+// Es wird die Anlage sowohl unterhalb '0_userdata.0' als auch 'javascript.x' unterstützt.
+const LOG_STATE_PATH = '0_userdata.0.Log-Script';
+
 
 // Pfad zum Log-Verzeichnis auf dem Server.
 // Standard-Pfad unter Linux: '/opt/iobroker/log/'. Wenn das bei dir auch so ist, dann einfach belassen.
@@ -356,13 +353,14 @@ const DEBUG_EXTENDED_NO_OF_CHARS = 120;
  *************************************************************************************************************************/
 
 
-
 /*************************************************************************************************************************
  * Global variables and constants
  *************************************************************************************************************************/
 
 // Final state path
-const FINAL_LOG_STATE_PATH = '0_userdata.0.' + LOG_STATE_PATH;
+const FINAL_STATE_LOCATION = validateStatePath(LOG_STATE_PATH, false);
+const FINAL_STATE_PATH = validateStatePath(LOG_STATE_PATH, true);
+
 
 // Merge loglines: define pattern (and escape the merge text)
 // We added an additional backslash '\' to each backslash as these need to be escaped.
@@ -387,7 +385,7 @@ function init() {
     onLogUnregister(G_LogHandler);
     
     // Create all script states
-    createUserStates('0_userdata.0', false, buildNeededStates(), function() {
+    createUserStates(FINAL_STATE_LOCATION, false, buildNeededStates(), function() {
         // -- All states created, so we continue by using callback
 
         // Subscribe on changes: Pressed button "clearJSON"
@@ -597,7 +595,7 @@ function processLogArrayAndSetStates(arrayLogInput) {
      *****************/
     for (let k = 0; k < arrayFilterIds.length; k++) {
         let lpFilterId = arrayFilterIds[k]; // Filter ID from LOG_FILTER, like 'error', 'info', 'custom', etc.
-        let lpStatePath1stPart = FINAL_LOG_STATE_PATH + '.log' + cleanseStatePath(lpFilterId); // Get Path to state
+        let lpStatePath1stPart = FINAL_STATE_PATH + '.log' + cleanseStatePath(lpFilterId); // Get Path to state
         let lpNewFinalLog = resultArr[lpFilterId];
 
         if (! isLikeEmpty(lpNewFinalLog) )  {
@@ -728,7 +726,7 @@ function subscribeClearJson() {
     let logSubscribe = '';
     for (let i = 0; i < LOG_FILTER.length; i++) {
         let lpFilterId = cleanseStatePath(LOG_FILTER[i].id);
-        let lpStateFirstPart = FINAL_LOG_STATE_PATH + '.log' + lpFilterId;
+        let lpStateFirstPart = FINAL_STATE_PATH + '.log' + lpFilterId;
         logSubscribe += ( (logSubscribe === '') ? '' : ', ') + lpFilterId;
         on({id: lpStateFirstPart + '.clearJSON', change: 'any', val: true}, function(obj) {
             let stateBtnPth = obj.id // e.g. [javascript.0.Log-Script.logInfo.clearJSON]
@@ -1024,13 +1022,13 @@ function buildNeededStates() {
                  *  Backward compatibility & cleanup: removing states not needed
                  */
                 // State .logMostRecent removed with script version 2.0a onwards as it does not make sense any longer due to scheduled update
-                let lpRetiredState = FINAL_LOG_STATE_PATH + '.log' + lpIDClean + '.logMostRecent';
+                let lpRetiredState = FINAL_STATE_PATH + '.log' + lpIDClean + '.logMostRecent';
                 if (isState(lpRetiredState, true))  {
                     deleteState(lpRetiredState);
                     if (LOG_INFO) log('Remove retired state: ' + lpRetiredState, 'info');
                 }
                 // State .clearJSONtime removed with script version 1.2 onwards as we use now time stamp of button '.clearJSON'.
-                lpRetiredState = FINAL_LOG_STATE_PATH + '.log' + lpIDClean + '.clearJSONtime';
+                lpRetiredState = FINAL_STATE_PATH + '.log' + lpIDClean + '.clearJSONtime';
                 if (isState(lpRetiredState, true))  {
                     deleteState(lpRetiredState);
                     if (LOG_INFO) log('Remove retired state: ' + lpRetiredState, 'info');
@@ -1043,7 +1041,7 @@ function buildNeededStates() {
 
     let finalStates = [];
     for (let s=0; s < statesArray.length; s++) {
-        finalStates.push([FINAL_LOG_STATE_PATH + '.' + statesArray[s].id, {
+        finalStates.push([FINAL_STATE_PATH + '.' + statesArray[s].id, {
             'name': statesArray[s].name,
             'desc': statesArray[s].name,
             'type': statesArray[s].type,
@@ -1402,6 +1400,24 @@ function arrayReplaceElementsByValue(arr, valReplace, newValue, exact) {
     return arr;
 }
 
+/**
+ * For a given state path, we extract the location '0_userdata.0' or 'javascript.0' or add '0_userdata.0', if missing.
+ * @param {string}  path            Like: 'Computer.Control-PC', 'javascript.0.Computer.Control-PC', '0_userdata.0.Computer.Control-PC'
+ * @param {boolean} returnFullPath  If true: full path like '0_userdata.0.Computer.Control-PC', if false: just location like '0_userdata.0' or 'javascript.0'
+ * @return {string}                 Path
+ */
+function validateStatePath(path, returnFullPath) {
+    if (path.startsWith('.')) path = path.substr(1);    // Remove first dot
+    if (path.endsWith('.'))   path = path.slice(0, -1); // Remove trailing dot
+    if (path.length < 1) log('Provided state path is not valid / too short.', 'error')
+    let match = path.match(/^((javascript\.([1-9][0-9]|[0-9])\.)|0_userdata\.0\.)/);
+    let location = (match == null) ? '0_userdata.0' : match[0].slice(0, -1); // default is '0_userdata.0'.
+    if(returnFullPath) {
+        return (path.indexOf(location) == 0) ? path : (location + '.' + path);
+    } else {
+        return location;
+    }
+}
 
 
 /**
@@ -1409,36 +1425,28 @@ function arrayReplaceElementsByValue(arr, valReplace, newValue, exact) {
  * Current Version:     https://github.com/Mic-M/iobroker.createUserStates
  * Support:             https://forum.iobroker.net/topic/26839/
  * Autor:               Mic (ioBroker) | Mic-M (github)
- * Version:             1.0 (17 January 2020)
- * Example:
- * -----------------------------------------------
-    let statesToCreate = [
-        ['Test.Test1', {'name':'Test 1', 'type':'string', 'read':true, 'write':true, 'role':'info', 'def':'Hello' }],
-        ['Test.Test2', {'name':'Test 2', 'type':'string', 'read':true, 'write':true, 'role':'info', 'def':'Hello' }],
-    ];
-    createUserStates('0_userdata.0', false, statesToCreate);
+ * Version:             1.1 (26 January 2020)
+ * Example:             see https://github.com/Mic-M/iobroker.createUserStates#beispiel
  * -----------------------------------------------
  * PLEASE NOTE: Per https://github.com/ioBroker/ioBroker.javascript/issues/474, the used function setObject() 
  *              executes the callback PRIOR to completing the state creation. Therefore, we use a setTimeout and counter. 
  * -----------------------------------------------
- * @param {string} where          Where to create the state: e.g. '0_userdata.0' or 'javascript.x'.
+ * @param {string} where          Where to create the state: '0_userdata.0' or 'javascript.x'.
  * @param {boolean} force         Force state creation (overwrite), if state is existing.
  * @param {array} statesToCreate  State(s) to create. single array or array of arrays
  * @param {object} [callback]     Optional: a callback function -- This provided function will be executed after all states are created.
  */
 function createUserStates(where, force, statesToCreate, callback = undefined) {
  
-    const WARN = false; // Throws warning in log, if state is already existing and force=false. Default is false, so no warning in log, if state exists.
+    const WARN = false; // Only for 0_userdata.0: Throws warning in log, if state is already existing and force=false. Default is false, so no warning in log, if state exists.
     const LOG_DEBUG = false; // To debug this function, set to true
     // Per issue #474 (https://github.com/ioBroker/ioBroker.javascript/issues/474), the used function setObject() executes the callback 
     // before the state is actual created. Therefore, we use a setTimeout and counter as a workaround.
-    // Increase this to 100, if it is not working.
-    const DELAY = 50; // Delay in milliseconds (ms)
-
+    const DELAY = 50; // Delay in milliseconds (ms). Increase this to 100, if it is not working.
 
     // Validate "where"
     if (where.endsWith('.')) where = where.slice(0, -1); // Remove trailing dot
-    if ( (where.match(/^javascript.([0-9]|[1-9][0-9])$/) == null) && (where.match(/^0_userdata.0$/) == null) ) {
+    if ( (where.match(/^((javascript\.([1-9][0-9]|[0-9]))$|0_userdata\.0$)/) == null) ) {
         log('This script does not support to create states under [' + where + ']', 'error');
         return;
     }
@@ -1446,75 +1454,95 @@ function createUserStates(where, force, statesToCreate, callback = undefined) {
     // Prepare "statesToCreate" since we also allow a single state to create
     if(!Array.isArray(statesToCreate[0])) statesToCreate = [statesToCreate]; // wrap into array, if just one array and not inside an array
 
-    let numStates = statesToCreate.length;
-    let counter = -1;
-    statesToCreate.forEach(function(param) {
-        counter += 1;
-        if (LOG_DEBUG) log ('[Debug] Currently processing following state: [' + param[0] + ']');
+    // Add "where" to STATES_TO_CREATE
+    for (let i = 0; i < statesToCreate.length; i++) {
+        let lpPath = statesToCreate[i][0].replace(/\.*\./g, '.'); // replace all multiple dots like '..', '...' with a single '.'
+        lpPath = lpPath.replace(/^((javascript\.([1-9][0-9]|[0-9])\.)|0_userdata\.0\.)/,'') // remove any javascript.x. / 0_userdata.0. from beginning
+        lpPath = where + '.' + lpPath; // add where to beginning of string
+        statesToCreate[i][0] = lpPath;
+    }
 
-        // Clean
-        let stateId = param[0];
-        if (! stateId.startsWith(where)) stateId = where + '.' + stateId; // add where to beginning of string
-        stateId = stateId.replace(/\.*\./g, '.'); // replace all multiple dots like '..', '...' with a single '.'
-        const FULL_STATE_ID = stateId;
-
-        if( ($(FULL_STATE_ID).length > 0) && (existsState(FULL_STATE_ID)) ) { // Workaround due to https://github.com/ioBroker/ioBroker.javascript/issues/478
-            // State is existing.
-            if (WARN && !force) log('State [' + FULL_STATE_ID + '] is already existing and will no longer be created.', 'warn');
-            if (!WARN && LOG_DEBUG) log('[Debug] State [' + FULL_STATE_ID + '] is already existing. Option force (=overwrite) is set to [' + force + '].');
-
-            if(!force) {
-                // State exists and shall not be overwritten since force=false
-                // So, we do not proceed.
+    if (where != '0_userdata.0') {
+        // Create States under javascript.x
+        let numStates = statesToCreate.length;
+        statesToCreate.forEach(function(loopParam) {
+            if (LOG_DEBUG) log('[Debug] Now we are creating new state [' + loopParam[0] + ']');
+            let loopInit = (loopParam[1]['def'] == undefined) ? null : loopParam[1]['def']; // mimic same behavior as createState if no init value is provided
+            createState(loopParam[0], loopInit, force, loopParam[1], function() {
                 numStates--;
                 if (numStates === 0) {
-                    if (LOG_DEBUG) log('[Debug] All states successfully processed!');
+                    if (LOG_DEBUG) log('[Debug] All states processed.');
                     if (typeof callback === 'function') { // execute if a function was provided to parameter callback
-                        if (LOG_DEBUG) log('[Debug] An optional callback function was provided, which we are going to execute now.');
+                        if (LOG_DEBUG) log('[Debug] Function to callback parameter was provided');
                         return callback();
+                    } else {
+                        return;
                     }
-                } else {
-                    // We need to go out and continue with next element in loop.
-                    return; // https://stackoverflow.com/questions/18452920/continue-in-cursor-foreach
                 }
-            } // if(!force)
-        }
-
-        /************
-         * State is not existing or force = true, so we are continuing to create the state through setObject().
-         ************/
-        let obj = {};
-        obj.type = 'state';
-        obj.native = {};
-        obj.common = param[1];
-        setObject(FULL_STATE_ID, obj, function (err) {
-            if (err) {
-                log('Cannot write object for state [' + FULL_STATE_ID + ']: ' + err);
-            } else {
-                if (LOG_DEBUG) log('[Debug] Now we are creating new state [' + FULL_STATE_ID + ']')
-                let init = null;
-                if(param[1].def === undefined) {
-                    if(param[1].type === 'number') init = 0;
-                    if(param[1].type === 'boolean') init = false;
-                    if(param[1].type === 'string') init = '';
-                } else {
-                    init = param[1].def;
-                }
-                setTimeout(function() {
-                    setState(FULL_STATE_ID, init, true, function() {
-                        if (LOG_DEBUG) log('[Debug] setState durchgeführt: ' + FULL_STATE_ID);
-                        numStates--;
-                        if (numStates === 0) {
-                            if (LOG_DEBUG) log('[Debug] All states processed.');
-                            if (typeof callback === 'function') { // execute if a function was provided to parameter callback
-                                if (LOG_DEBUG) log('[Debug] Function to callback parameter was provided');
-                                return callback();
-                            }
-                        }
-                    });
-                }, DELAY + (20 * counter) );
-            }
+            });
         });
-    });
+    } else {
+        // Create States under 0_userdata.0
+        let numStates = statesToCreate.length;
+        let counter = -1;
+        statesToCreate.forEach(function(loopParam) {
+            counter += 1;
+            if (LOG_DEBUG) log ('[Debug] Currently processing following state: [' + loopParam[0] + ']');
+            if( ($(loopParam[0]).length > 0) && (existsState(loopParam[0])) ) { // Workaround due to https://github.com/ioBroker/ioBroker.javascript/issues/478
+                // State is existing.
+                if (WARN && !force) log('State [' + loopParam[0] + '] is already existing and will no longer be created.', 'warn');
+                if (!WARN && LOG_DEBUG) log('[Debug] State [' + loopParam[0] + '] is already existing. Option force (=overwrite) is set to [' + force + '].');
+                if(!force) {
+                    // State exists and shall not be overwritten since force=false
+                    // So, we do not proceed.
+                    numStates--;
+                    if (numStates === 0) {
+                        if (LOG_DEBUG) log('[Debug] All states successfully processed!');
+                        if (typeof callback === 'function') { // execute if a function was provided to parameter callback
+                            if (LOG_DEBUG) log('[Debug] An optional callback function was provided, which we are going to execute now.');
+                            return callback();
+                        }
+                    } else {
+                        // We need to go out and continue with next element in loop.
+                        return; // https://stackoverflow.com/questions/18452920/continue-in-cursor-foreach
+                    }
+                } // if(!force)
+            }
+
+            // State is not existing or force = true, so we are continuing to create the state through setObject().
+            let obj = {};
+            obj.type = 'state';
+            obj.native = {};
+            obj.common = loopParam[1];
+            setObject(loopParam[0], obj, function (err) {
+                if (err) {
+                    log('Cannot write object for state [' + loopParam[0] + ']: ' + err);
+                } else {
+                    if (LOG_DEBUG) log('[Debug] Now we are creating new state [' + loopParam[0] + ']')
+                    let init = null;
+                    if(loopParam[1].def === undefined) {
+                        if(loopParam[1].type === 'number') init = 0;
+                        if(loopParam[1].type === 'boolean') init = false;
+                        if(loopParam[1].type === 'string') init = '';
+                    } else {
+                        init = loopParam[1].def;
+                    }
+                    setTimeout(function() {
+                        setState(loopParam[0], init, true, function() {
+                            if (LOG_DEBUG) log('[Debug] setState durchgeführt: ' + loopParam[0]);
+                            numStates--;
+                            if (numStates === 0) {
+                                if (LOG_DEBUG) log('[Debug] All states processed.');
+                                if (typeof callback === 'function') { // execute if a function was provided to parameter callback
+                                    if (LOG_DEBUG) log('[Debug] Function to callback parameter was provided');
+                                    return callback();
+                                }
+                            }
+                        });
+                    }, DELAY + (20 * counter) );
+                }
+            });
+        });
+    }
 }
 
