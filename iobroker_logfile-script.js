@@ -8,7 +8,7 @@
  * Filter an, um den Eintrag dann in den entsprechenden Datenpunkten dieses Scripts abzulegen.
  
  * Es stehen auch JSON-Datenpunkte zur Verfügung, mit diesen kann im vis eine
- * Tabelle ausgegeben werden (z.B. über das Widget 'basic - Table').
+ * Tabelle ausgegeben werden (z.B. über das Widget 'basic - Table' oder 'materialdesign - Table').
  *
  * Aktuelle Version: https://github.com/Mic-M/iobroker.logfile-script
  * Support:          https://forum.iobroker.net/topic/13971/vorlage-log-datei-aufbereiten-f%C3%BCr-vis-javascript
@@ -23,6 +23,16 @@
  * =====================================================================================
  * -----------------------------------------------------------------------------------------------------------------------
  * Change Log:
+ *  4.0 Mic     + To allow individual settings per each defined LOG_FILTER, the following global 
+ *                settings were moved to LOG_FILTER:
+ *                 * JSON_DATE_FORMAT                   -> jsonDateFormat
+ *                 * JSON_LEN                           -> jsonLogLength
+ *                 * JSON_NO_ENTRIES                    -> jsonMaxLines
+ *                 * JSON_APPLY_CSS_LIMITED_TO_LEVEL    -> jsonCssToLevel
+ *                 * L_SORT_ORDER_DESC                  -> sortDescending
+ *              + Code improvements
+ *              + Renamed LOG_NO_OF_ENTRIES to MAX_LOG_LINES
+ *  ---------------------------------------------------------------------------------------------------- 
  *  3.4 Mic     + Support both '0_userdata.0' and 'javascript.x' for state creation
  *  3.3 Mic     - Fix state path
  *  3.2 Mic     + Create all states under 0_userdata.0, and no longer under javascript.<instance> (like javascript.0)
@@ -110,11 +120,7 @@ const LOG_FS_PATH = '/opt/iobroker/log/';
 
 // Zahl: Maximale Anzahl der letzten Logeinträge in den Datenpunkten. Alle älteren werden entfernt.
 // Bitte nicht allzu viele behalten, denn das kostet Performance.
-const LOG_NO_OF_ENTRIES = 100;
-
-// Sortierung der Logeinträge: true für descending (absteigend, also neuester oben), oder false für ascending (aufsteigend, also ältester oben)
-// Empfohlen ist true, damit neueste Einträge immer oben stehen.
-const L_SORT_ORDER_DESC = true;
+const MAX_LOG_LINES = 100;
 
 // Der js-Controller Version 2.0 oder größer fügt Logs teils vorne die PID in Klammern hinzu, 
 // also z.B. "(12234) Terminated (15): Without reason". 
@@ -143,56 +149,89 @@ const BLACKLIST_GLOBAL = [
 ];
 
 /**
- * Zusatz-Einstellung für Option "merge" unter "Konfiguration: Datenpunkte und Filter":
+ * Zusatz-Einstellung für Option "merge" für LOG_FILTER (unter "Konfiguration: Datenpunkte und Filter"):
  * In MERGE_LOGLINES_TXT kann hier ein anderes Wort eingetragen werden, z.B. 'entries' oder 'Zeilen', damit [123 entries] 
  * oder [123 Zeilen] vorangestellt wird anstatt [123 Einträge].
  * HINWEIS: Falls MERGE_LOGLINES_TXT geändert wird: bitte alle Datenpunkte des Scripts löschen und dann Script neu starten.
  */
 const MERGE_LOGLINES_TXT = 'Einträge';
 
+/**
+ *  Für JSON-Tabelle: Füge CSS-Klasse hinzu je nach Log-Level (debug, silly, info, warn und error), um Tabellen-Text zu formatieren.
+ *  Beispiel für Log-Level "debug": ersetzt "xxx" durch "<span class='log-debug'>xxx</span>""
+ *  Es wird jeweils "log-" vorangestellt, also: debug -> log-debug, silly -> log-silly, info -> log-info, etc.
+ *  Etwa für Widget "basic - Table" im vis können im Reiter "CSS" z.B. folgende Zeilen hinzugefügt werden,
+ *  um Warnungen in oranger und Fehler in roter Farbe anzuzeigen.
+ *         .log-warn { color: orange; }
+ *         .log-error { color: red; }
+ *  Tipp: In LOG_FILTER kann dann bei den einzelnen Filtern mittels "jsonCssToLevel" eingestellt werden, dass das CSS
+ *        nur  für die Spalte "level" (also debug, error, info) und nicht auf alle Spalten angewendet wird.
+ */
+const JSON_APPLY_CSS = true;
+
 
 /*******************************************************************************
  * Konfiguration: Datenpunkte und Filter
  ******************************************************************************
  * Dies ist das Herzstück dieses Scripts: hier werden die Datenpunkte konfiguriert, die erstellt werden sollen. 
- * Hierbei kannst du entsprechend Filter setzen, also Wörter/Begriffe, die in Logeinträgen enthalten sein
+ * Hierbei kannst du entsprechend Filter setzen, also z.B. Wörter/Begriffe, die in Logeinträgen enthalten sein
  * müssen, damit sie in den jeweiligen Datenpunkten aufgenommen werden.
  * --------------------------------------------------------------------------------------------------------------------------
- * id:         Ein Begriff ohne Leerzeichen, z.B. "error", "sonoff", homematic, etc. Die ID wird dann Teil der
- *             Datenpunkte, z.B. "javascript.0.Log-Script.logHomematic.log" mit automatisch vorangestelltem "log".
+ * id:              Ein Begriff ohne Leerzeichen, z.B. "error", "sonoff", homematic, etc. Die ID wird dann Teil der
+ *                  Datenpunkte, z.B. "javascript.0.Log-Script.logHomematic.log" mit automatisch vorangestelltem "log".
  * --------------------------------------------------------------------------------------------------------------------------
- * filter_all: ALLE Begriffe müssen in der Logzeile enthalten sein. Ist einer der Begriffe nicht enthalten, dann wird der 
- *             komplette Logeintrag auch nicht übernommen. Leeres Array [] eingeben, falls hier filtern nicht gewünscht.
+ * filter_all:      ALLE Begriffe müssen in der Logzeile enthalten sein. Ist einer der Begriffe nicht enthalten, dann wird der 
+ *                  komplette Logeintrag auch nicht übernommen. Leeres Array [] eingeben, falls hier filtern nicht gewünscht.
  * --------------------------------------------------------------------------------------------------------------------------
- * filter_any: Mindestens einer der gelisteten Begriffe muss enthalten sein. Leeres Array [] eingeben, falls hier filtern
- *             nicht gewünscht.
+ * filter_any:      Mindestens einer der gelisteten Begriffe muss enthalten sein. Leeres Array [] eingeben, falls hier filtern
+ *                  nicht gewünscht.
  * --------------------------------------------------------------------------------------------------------------------------
- * blacklist:  Schwarze Liste: Wenn einer dieser Begriffe im Logeintrag enthalten ist, so wird der komplette Logeintrag 
- *             nicht übernommen, egal was vorher in filter_all oder filter_any definiert ist.
- *             Mindestens 3 Zeichen erforderlich, sonst wird es nicht berücksichtigt.
- *             HINWEIS: BLACKLIST_GLOBAL wird vorher schon angewendet, hier kannst du einfach nur noch eine individuelle 
- *             Blackliste pro id definieren.
+ * blacklist:       Schwarze Liste: Wenn einer dieser Begriffe im Logeintrag enthalten ist, so wird der komplette Logeintrag 
+ *                  nicht übernommen, egal was vorher in filter_all oder filter_any definiert ist.
+ *                  Mindestens 3 Zeichen erforderlich, sonst wird es nicht berücksichtigt.
+ *                  HINWEIS: BLACKLIST_GLOBAL wird vorher schon angewendet, hier kannst du einfach nur noch eine individuelle 
+ *                  Blackliste pro id definieren.
  * --------------------------------------------------------------------------------------------------------------------------
- * clean:      Der Log-Eintrag wird um diese Zeichenfolgen bereinigt, d.h. diese werden entfernt, aber die restliche Zeile 
- *             bleibt bestehen. Z.B. um unerwünschte Zeichenfolgen zu entfernen oder Log-Ausgaben zu kürzen.
+ * clean:           Der Log-Eintrag wird um diese Zeichenfolgen bereinigt, d.h. diese werden entfernt, aber die restliche Zeile 
+ *                  bleibt bestehen. Z.B. um unerwünschte Zeichenfolgen zu entfernen oder Log-Ausgaben zu kürzen.
  * --------------------------------------------------------------------------------------------------------------------------
- * columns:    Nur für JSON (für vis). 
- *             Folgende Spalten gibt es: 'date','level','source','msg'. Hier können einzelne Spalten entfernt oder die 
- *             Reihenfolge verändert werden. Bitte keine anderen Spalten eintragen, sondern nur 'date','level','source','msg'.
+ * merge:           Log-Einträge mit gleichem Text zusammenfassen. Beispiel:
+ *                      -----------------------------------------------------------------------------------
+ *                      2019-08-17 20:00:00.335 - info: javascript.0 script.js.Wetter: Wetterdaten abrufen.
+ *                      2019-08-17 20:15:00.335 - info: javascript.0 script.js.Wetter: Wetterdaten abrufen.
+ *                      2019-08-17 20:30:00.335 - info: javascript.0 script.js.Wetter: Wetterdaten abrufen.
+ *                      -----------------------------------------------------------------------------------
+ *                  Daraus wird dann nur noch eine Logzeile mit letztem Datum/Uhrzeit und hinzufügen von "[3 Einträge]":
+ *                      -----------------------------------------------------------------------------------
+ *                      2019-08-17 20:30:00.335 - info: javascript.0 [3 Einträge] script.js.Wetter: Wetterdaten abrufen.
+ *                      -----------------------------------------------------------------------------------
+ *                  Zum aktivieren: true eintragen, zum deaktivieren: false eintragen.
  * --------------------------------------------------------------------------------------------------------------------------
- * merge:      Log-Einträge mit gleichem Text zusammenfassen. Beispiel:
- *                  -----------------------------------------------------------------------------------
- *                  2019-08-17 20:00:00.335 - info: javascript.0 script.js.Wetter: Wetterdaten abrufen.
- *                  2019-08-17 20:15:00.335 - info: javascript.0 script.js.Wetter: Wetterdaten abrufen.
- *                  2019-08-17 20:30:00.335 - info: javascript.0 script.js.Wetter: Wetterdaten abrufen.
- *                  -----------------------------------------------------------------------------------
- *             Daraus wird dann nur noch eine Logzeile mit letztem Datum/Uhrzeit und hinzufügen von "[3 Einträge]":
- *                  -----------------------------------------------------------------------------------
- *                  2019-08-17 20:30:00.335 - info: javascript.0 [3 Einträge] script.js.Wetter: Wetterdaten abrufen.
- *                  -----------------------------------------------------------------------------------
+ * sortDescending:  Wenn true: Sortiert die Logeinträge absteigend, also neuester oben. 
+ *                  Wenn false: Sortiert die Logeinträge aufsteigend, also ältester oben. 
+ * --------------------------------------------------------------------------------------------------------------------------
+ * jsonColumns:     Nur für JSON (für vis). 
+ *                  Folgende Spalten gibt es: 'date','level','source','msg'. Hier können einzelne Spalten entfernt oder die 
+ *                  Reihenfolge verändert werden. Bitte keine anderen Spalten eintragen, sondern nur 'date','level','source','msg'.
+ * --------------------------------------------------------------------------------------------------------------------------
+ * jsonDateFormat:  Datumsformat für JSON Log. Z.B. volles Datum mit 'YYYY-MM-DD HH:MM:SS' oder nur Uhrzeit mit "HH:MM:SS". Die 
+ *                  Platzhalter YYYY, MM, DD usw. werden jeweils ersetzt.
+ *                  YYYY = Jahr 4stellig (z.B. 2019), YY = Jahr 2stellig (z.B. 19), MM = Monat, DD = Tag, HH = Stunde, MM = Minute, 
+ *                  SS = Sekunde. Groß- oder Kleinschreibung ist egal, d.h. YYYY ist das gleiche wie yy.
+ *                  Die Verbinder (-, :, Leerzeichen, etc.) können im Prinzip frei gewählt werden.
+ *                  Beispiele: 'HH:MM:SS' für 19:37:25, 'HH:MM' für 19:37, 'DD.MM. HH:MM' für '25.07. 19:37'
+ * --------------------------------------------------------------------------------------------------------------------------
+ * jsonLogLength:   Maximale Anzahl Zeichen jeder einzelnen Log-Meldung im JSON-Log. Alles was länger ist, wird abgeschnitten.
+ * --------------------------------------------------------------------------------------------------------------------------
+ * jsonMaxLines:    Maximale Anzahl der letzten Logeinträge im JSON-Log. Alle älteren werden entfernt.
+ *                  Falls in MAX_LOG_LINES z.B. "100" gesetzt wird, wird hier bei 100 der Cut gemacht, selbst wenn in 
+ *                  jsonMaxLines etwa 250 eingetragen wird. D.h. im Bedarf zuerst MAX_LOG_LINES anpassen/erhöhen.
+ * --------------------------------------------------------------------------------------------------------------------------
+ * jsonCssToLevel:  Wenn true, dann wird JSON_APPLY_CSS nur für die Spalte "level" (also debug, error, info) angewendet, 
+ *                  aber nicht für die restlichen Spalten wie Datum, Log-Eintrag, etc.
+                    Falls alle Spalten das CSS bekommen sollen: auf false setzen.
+ * --------------------------------------------------------------------------------------------------------------------------
  *
- *             Zum aktivieren: true eintragen, zum deaktivieren: false eintragen.
- * --------------------------------------------------------------------------------------------------------------------------
  * WEITERER HINWEIS: 
  * Bestehende Datenpunkt-Inhalte dieses Scripts bei Anpassung dieser Option werden nicht nachträglich neu 
  * gefiltert, sondern nur alle neu hinzugefügten Log-Einträge ab Speichern des Scripts werden berücksichtigt.
@@ -204,116 +243,106 @@ const LOG_FILTER = [
   // vom Adapter 'hubschr.0'. Dabei sollen entweder Wetterwarnungen, Alarme, oder UFOs gemeldet werden. Alles unter 
   // Windstärke "5 Bft" interessiert uns dabei nicht, daher haben wir '0 Bft' bis '4 Bft' auf die Blackliste gesetzt.
   // Außerdem entfernen wir von der Log-Zeile die Zeichenfolgen '****', '!!!!' und 'ufo gesichtet', der Rest bleibt 
-  // aber bestehen. Zudem haben wir unter columns die Spaltenreihenfolge geändert. 'level' herausgenommen, und Quelle 
+  // aber bestehen. Zudem haben wir unter jsonColumns die Spaltenreihenfolge geändert. 'level' herausgenommen, und Quelle 
   // ganz vorne.
 /*
   {
-    id:          'hubschrauberlandeplatz',
-    filter_all:  ['hubschr.0'],
-    filter_any:  ['wetterwarnung', 'alarm', 'ufo'],
-    blacklist:   ['0 Bft', '1 Bft', '2 Bft', '3 Bft', '4 Bft'],
-    clean:       ['****', '!!!!', 'ufo gesichtet'],
-    columns:     ['source','date','msg'],
-    merge:       true,
+    id:             'hubschrauberlandeplatz',
+    filter_all:     ['hubschr.0'],
+    filter_any:     ['wetterwarnung', 'alarm', 'ufo'],
+    blacklist:      ['0 Bft', '1 Bft', '2 Bft', '3 Bft', '4 Bft'],
+    clean:          ['****', '!!!!', 'ufo gesichtet'],
+    merge:          true,
+    sortDescending: true,
+    jsonDateFormat: 'dd.mm. hh:mm',       
+    jsonColumns:    ['source','date','msg'],
+    jsonLogLength:  100,
+    jsonMaxLines:   10,
+    jsonCssToLevel: true,
   }, 
 */
 
 /*
   {
-    id:          'all',    // Beispiel "all": hier kommen alle Logeinträge rein, keine Filterung
-    filter_all:  ['', ''], // wird ignoriert, wenn leer
-    filter_any:  ['', ''], // wird ignoriert, wenn leer
-    blacklist:   ['', ''], // wird ignoriert, wenn leer
-    clean:       ['', '', ''], // wird ignoriert, wenn leer
-    columns:     ['date','level','source','msg'],  // Spaltenreihenfolge für JSON (Tabelle in vis)
-    merge:       true,
+    id:             'all',    // Beispiel "all": hier kommen alle Logeinträge rein, keine Filterung
+    filter_all:     ['', ''], // wird ignoriert, wenn leer
+    filter_any:     ['', ''], // wird ignoriert, wenn leer
+    blacklist:      ['', ''], // wird ignoriert, wenn leer
+    clean:          ['', '', ''], // wird ignoriert, wenn leer
+    merge:          true,
+    sortDescending: true,
+    jsonColumns:    ['date','level','source','msg'],  // Spaltenreihenfolge für JSON (Tabelle in vis)
+    jsonLogLength:  100,
+    jsonMaxLines:   10,
+    jsonCssToLevel: true,
   },
 */
   {
-    id:          'info',
-    filter_all:  [' - info: '], // nur Logeinträge mit Level 'info'
-    filter_any:  ['', ''],
-    blacklist:   ['', ''],
-    clean:       ['', '', ''],
-    columns:     ['date','level','source','msg'],
-    merge:       true,
+    id:             'info',
+    filter_all:     [' - info: '], // nur Logeinträge mit Level 'info'
+    filter_any:     ['', ''],
+    blacklist:      ['', ''],
+    clean:          ['', '', ''],
+    merge:          true,
+    sortDescending: true,
+    jsonDateFormat: 'dd.mm. hh:mm',
+    jsonColumns:    ['date','level','source','msg'],
+    jsonLogLength:  100,
+    jsonMaxLines:   60,
+    jsonCssToLevel: true,
   },
   {
-    id:          'error',
-    filter_all:  [' - error: ', ''],  // nur Logeinträge mit Level 'error'
-    filter_any:  [''],
-    blacklist:   ['', '', ''],
-    clean:       ['', '', ''],
-    columns:     ['date','level','source','msg'],
-    merge:       true,    
+    id:             'error',
+    filter_all:     [' - error: ', ''],  // nur Logeinträge mit Level 'error'
+    filter_any:     [''],
+    blacklist:      ['', '', ''],
+    clean:          ['', '', ''],
+    merge:          true,
+    sortDescending: true,
+    jsonColumns:    ['date','level','source','msg'],
+    jsonDateFormat: 'dd.mm. hh:mm',
+    jsonLogLength:  100,
+    jsonMaxLines:   60,
+    jsonCssToLevel: true,
   },
   {
-    id:          'warnanderror',
-    filter_all:  ['', ''],
-    filter_any:  [' - error: ', ' - warn: '],  // nur Logeinträge mit Levels 'warn' und 'error'
-    blacklist:   ['', 'no playback content', 'Ignore! Actual secret is '],
-    clean:       ['', '', ''],
-    columns:     ['date','level','source','msg'],
-    merge:       true,
+    id:             'warnanderror',
+    filter_all:     ['', ''],
+    filter_any:     [' - error: ', ' - warn: '],  // nur Logeinträge mit Levels 'warn' und 'error'
+    blacklist:      ['', 'no playback content', 'Ignore! Actual secret is '],
+    clean:          ['', '', ''],
+    merge:          true,
+    sortDescending: true,
+    jsonDateFormat: 'dd.mm. hh:mm',
+    jsonColumns:    ['date','level','source','msg'],
+    jsonLogLength:  100,
+    jsonMaxLines:   60,
+    jsonCssToLevel: true,
   },
   {
     // Beispiel, um einen bestimmten Adapter zu überwachen.
     // Hier werden alle Fehler und Warnungen des Homematic-Adapters hm-rpc.0 gelistet.
-    id:          'homematic',
-    filter_all:  ['hm-rpc.0', ''],  // hm-rpc.0 muss enthalten sein.
-    filter_any:  [' - error: ', ' - warn: '],  // entweder error oder warn
-    blacklist:   ['', '', ''],
-    clean:       ['', '', ''],
-    columns:     ['date','level','source','msg'],
-    merge:       true,
+    id:             'homematic',
+    filter_all:     ['hm-rpc.0', ''],  // hm-rpc.0 muss enthalten sein.
+    filter_any:     [' - error: ', ' - warn: '],  // entweder error oder warn
+    blacklist:      ['', '', ''],
+    clean:          ['', '', ''],
+    merge:          true,
+    sortDescending: true,
+    jsonDateFormat: 'dd.mm. hh:mm',
+    jsonColumns:    ['date','level','source','msg'],
+    jsonLogLength:  100,
+    jsonMaxLines:   60,
+    jsonCssToLevel: true,
   },
 
 ];
 
 
 /*******************************************************************************
- * Konfiguration: JSON-Log (für Ausgabe z.B. im vis)
- ******************************************************************************/
-// Datumsformat für JSON Log. Z.B. volles z.B. Datum mit 'yyyy-mm-dd HH:MM:SS' oder nur Uhrzeit mit "HH:MM:SS". Die Platzhalter yyyy, mm, dd usw.
-// werden jeweils ersetzt. yyyy = Jahr, mm = Monat, dd = Tag, HH = Stunde, MM = Minute, SS = Sekunde. Auf Groß- und Kleinschreibung achten!
-// Die Verbinder (-, :, Leerzeichen, etc.) können im Prinzip frei gewählt werden.
-// Beispiele: 'HH:MM:SS' für 19:37:25, 'HH:MM' für 19:37, 'dd.mm. HH:MM' für '25.07. 19:37'
-const JSON_DATE_FORMAT = 'dd.mm. HH:MM';
-
-// Max. Anzahl Zeichen der Log-Meldung im JSON Log.
-const JSON_LEN = 100;
-
-// Zahl: Maximale Anzahl der letzten Logeinträge in den Datenpunkten. Alle älteren werden entfernt.
-// Speziell für das JSON-Log zur Visualisierung, hier brauchen wir ggf. weniger als für L_NO_OF_ENTRIES gesamt.
-const JSON_NO_ENTRIES = 60;
-
-// Füge CSS-Klasse hinzu je nach Log-Level (error, warn, info, etc.), um Tabellen-Text zu formatieren.
-// Beispiel für Info: ersetzt "xxx" durch "<span class='log-info'>xxx</span>""
-// Analog für error: log-error, warn: log-warn, etc.
-// Beim Widget "basic - Table" im vis können im Reiter "CSS" z.B. folgende Zeilen hinzugefügt werden,
-// um Warnungen in oranger und Fehler in roter Farbe anzuzeigen.
-// .log-warn { color: orange; }
-// .log-error { color: red; }
-const JSON_APPLY_CSS = true;
-
-// JSON_APPLY_CSS wird nur für die Spalte "level" (also error, info) angewendet, aber nicht für die 
-// restlichen Spalten wie Datum, Log-Eintrag, etc.
-// Falls alle Zeilen formatiert werden sollen: auf false setzen.
-const JSON_APPLY_CSS_LIMITED_TO_LEVEL = true;
-
-
-/*******************************************************************************
- * Konfiguration: Wie oft Datenpunkte aktualisieren?
- ******************************************************************************/
-// Neu reinkommende Logeinträge werden erst mal gesammelt (in Variable G_NewLogLinesArrayToProcess). Diese werden dann 
-// regelmäßig in den Datenpunkten geschrieben. Sinnvoll ist hier nicht kürzer als 2-3 Sekunden, und nicht länger als 
-// ein paar Minuten. Zu kurzes Intervall: Script kommt nicht mehr nach. Zu lange: falls viele Logeinträge reinkommen, 
-// kann sich vieles "aufstauen" zur Abarbeitung. Benutze den "Cron"-Button oben rechts für komfortable Einstellung.
-const STATE_UPDATE_SCHEDULE = '*/20 * * * * *'; // alle 20 Sekunden
-
-/*******************************************************************************
  * Konfiguration: Konsolen-Ausgaben
  ******************************************************************************/
+
 // Auf true setzen, wenn zur Fehlersuche einige Meldungen ausgegeben werden sollen.
 // Ansonsten bitte auf false stellen.
 const LOG_DEBUG = false;
@@ -325,6 +354,15 @@ const LOG_INFO = true;
 /*******************************************************************************
  * Experten-Konfiguration
  ******************************************************************************/
+
+// Wie oft Datenpunkte aktualisieren?
+// Neu reinkommende Logeinträge werden erst mal gesammelt (in Variable G_NewLogLinesArrayToProcess). Diese werden dann 
+// regelmäßig in den Datenpunkten geschrieben. Sinnvoll ist hier nicht kürzer als 2-3 Sekunden, und nicht länger als 
+// ein paar Minuten. Zu kurzes Intervall: Script kommt nicht mehr nach. Zu lange: falls viele Logeinträge reinkommen, 
+// kann sich vieles "aufstauen" zur Abarbeitung. Benutze den "Cron"-Button oben rechts für komfortable Einstellung.
+const STATE_UPDATE_SCHEDULE = '*/20 * * * * *'; // alle 20 Sekunden
+
+
 // Leer lassen! Nur setzen, falls ein eigener Filename für das Logfile verwendet wird für Debug.
 const DEBUG_CUSTOM_FILENAME = '';
 
@@ -545,7 +583,6 @@ function applyFilter(strLogEntry) {
  *                                      ['info':'15.08.2019 09:33:58.522 info adapt.0 some more log', 'error':''],
  *                                      ['info':'', 'error':'15.08.2019 09:37:55.807 error adapt.0 some error log'],
  *                                   ]
- *                                   Array is like: ['info':'logtext', 'error':'logtext'] etc.
  **/
 function processLogArrayAndSetStates(arrayLogInput) {
 
@@ -559,7 +596,6 @@ function processLogArrayAndSetStates(arrayLogInput) {
         arrayFilterIds.push(LOG_FILTER[i].id); // each LOG_FILTER id into array
         resultArr[LOG_FILTER[i].id] = '';
     }
-
     /*****************
      * [2] Process element by element, so ['info':'log test', 'error':'log test'] of given array.
      * We fill the result array accordingly.
@@ -621,7 +657,7 @@ function processLogArrayAndSetStates(arrayLogInput) {
             lpNewFinalLogArray = sortLogArrayByDate(lpNewFinalLogArray, 'desc');
 
             // Merge Loglines if multiple values and add leading '[123 entries]' to log message
-            let doMerge = logFilterGetValueByKey(lpFilterId, 'merge');
+            let doMerge = getConfigValuePerKey(LOG_FILTER, 'id', lpFilterId, 'merge');
             if (doMerge || doMerge === 'true') {    // also check for string 'true' in case user used string
                 lpNewFinalLogArray = mergeLogLines(lpNewFinalLogArray);
             }
@@ -632,15 +668,15 @@ function processLogArrayAndSetStates(arrayLogInput) {
             // Let's remove elements if time of when button '.clearJSON' was pressed is greater than log date.
             lpNewFinalLogArrayJSON = clearJsonByDate(lpNewFinalLogArrayJSON, lpStatePath1stPart + '.clearJSON');              
 
-            // Just keep the first x elements of the array
-            lpNewFinalLogArray = lpNewFinalLogArray.slice(0, LOG_NO_OF_ENTRIES);
-            lpNewFinalLogArrayJSON = lpNewFinalLogArrayJSON.slice(0, JSON_NO_ENTRIES);
+            // Just keep the first x elements of the log. JSON log length is being set individually.
+            lpNewFinalLogArray = lpNewFinalLogArray.slice(0, MAX_LOG_LINES);
+            lpNewFinalLogArrayJSON = lpNewFinalLogArrayJSON.slice(0, getConfigValuePerKey(LOG_FILTER, 'id', lpFilterId, 'jsonMaxLines'));
 
             // Get just the most recent log entry into string
             let lpMostRecent = lpNewFinalLogArray[0];
 
             // Sort ascending if desired
-            if (!L_SORT_ORDER_DESC) {
+            if (!getConfigValuePerKey(LOG_FILTER, 'id', lpFilterId, 'sortDescending')) {
                 lpNewFinalLogArray = lpNewFinalLogArray.reverse();
                 lpNewFinalLogArrayJSON = lpNewFinalLogArrayJSON.reverse();
             }
@@ -665,14 +701,14 @@ function processLogArrayAndSetStates(arrayLogInput) {
                 let arrSplitLogLine = logLineSplit(lpNewFinalLogArrayJSON[j]);
                 if (arrSplitLogLine !== false) {
                     let strLogMsg = arrSplitLogLine.message;
-                    // Reduce the length for each log message per configuration
-                    strLogMsg = strLogMsg.substr(0, JSON_LEN);
+                    // Reduce the length for each log message per "jsonLogLength"
+                    strLogMsg = strLogMsg.substr(0, LOG_FILTER[k].jsonLogLength);
                     // ++++++
                     // Build the final Array
                     // ++++++
                     // We need this section to generate the JSON with the columns (which ones, and order) as specified in LOG_FILTER
                     let objectJSONentry = {}; // object (https://stackoverflow.com/a/13488998)
-                    if (isLikeEmpty(LOG_FILTER[k].columns)) log('Columns not specified in LOG_FILTER', 'warn');
+                    if (isLikeEmpty(LOG_FILTER[k].jsonColumns)) log('Columns not specified in "jsonColumns".', 'warn');
                     // Prepare CSS
                     let strCSS1, strCSS2;
                     let strCSS1_level, strCSS2_level;
@@ -681,16 +717,16 @@ function processLogArrayAndSetStates(arrayLogInput) {
                         strCSS2 = '</span>';
                         strCSS1_level = strCSS1;
                         strCSS2_level = strCSS2;
-                        if (JSON_APPLY_CSS_LIMITED_TO_LEVEL) {
+                        if (LOG_FILTER[k].jsonCssToLevel) {
                             strCSS1 = '';
                             strCSS2 = '';
                         }
                     }
 
-                    for (let lpCol of LOG_FILTER[k].columns) {
+                    for (let lpCol of LOG_FILTER[k].jsonColumns) {
                         switch (lpCol) {
                             case 'date' :
-                                objectJSONentry.date = strCSS1 + formatLogDateStr(arrSplitLogLine.datetime, JSON_DATE_FORMAT) + strCSS2;
+                                objectJSONentry.date = strCSS1 + formatLogDateStr(arrSplitLogLine.datetime, LOG_FILTER[k].jsonDateFormat) + strCSS2;
                                 break;
                             case 'level' :
                                 objectJSONentry.level = strCSS1_level + arrSplitLogLine.level + strCSS2_level;
@@ -750,18 +786,19 @@ function subscribeClearJson() {
 /**
  * Reformats a log date string accordingly
  * @param {string}    strDate   The date to convert
- * @param {string}  format      e.g. 'yyyy-mm-dd HH:MM:SS'.
- *
+ * @param {string}    format    e.g. 'yyyy-mm-dd HH:MM:SS'. Both upper case and lower case letters are allowed.
+ * @return {string}             Returns the resulting date string
  */
 function formatLogDateStr(strDate, format) {
 
-    let strResult = format;
+    let strResult = format.toLowerCase();
     strResult = strResult.replace('yyyy', strDate.substr(0,4));
+    strResult = strResult.replace('yy', strDate.substr(2,2));
     strResult = strResult.replace('mm', strDate.substr(5,2));
     strResult = strResult.replace('dd', strDate.substr(8,2));
-    strResult = strResult.replace('HH', strDate.substr(11,2));
-    strResult = strResult.replace('MM', strDate.substr(14,2));
-    strResult = strResult.replace('SS', strDate.substr(17,2));
+    strResult = strResult.replace('hh', strDate.substr(11,2));
+    strResult = strResult.replace('mm', strDate.substr(14,2));
+    strResult = strResult.replace('ss', strDate.substr(17,2));
 
     return strResult;
 
@@ -1053,28 +1090,6 @@ function buildNeededStates() {
     }
     return finalStates;
 }
-
-
-/**
- * LOG_FILTER: Get value by key. So if we provide 'error' as id, then we get the content of any other element, like of 'blacklist'.
- * @param {string} id      the id, like 'error', 'warn', etc.
- * @param element the element of which we need the value, e.g. 'blacklist', 'merge', etc.
- * Returns the element's value, or number -1 of nothing found.
- */
-function logFilterGetValueByKey(id, element) {
-    // We need to get all ids of LOG_FILTER into array
-    for (let i = 0; i < LOG_FILTER.length; i++) {
-        if ( LOG_FILTER[i].id === id ) {
-            if (LOG_FILTER[i][element] === undefined) {
-                return -1;
-            } else {
-                return LOG_FILTER[i][element];
-            }
-        }
-    }
-    return -1;
-}
-
 
 /**
  * Converts a timestamp to log date format, like 2019-10-15 16:38:00.260.
@@ -1399,6 +1414,31 @@ function arrayReplaceElementsByValue(arr, valReplace, newValue, exact) {
     }
     return arr;
 }
+
+/**
+ * Retrieve values from a CONFIG variable, example:
+ * const CONF = [{car: 'bmw', color: 'black', hp: '250'}, {car: 'audi', color: 'blue', hp: '190'}]
+ * To get the color of the Audi, use: getConfigValuePerKey(CONF, 'car', 'audi', 'color')
+ * To find out which car has 190 hp, use: getConfigValuePerKey(CONF, 'hp', '190', 'car')
+ * @param {object}  config     The configuration variable/constant
+ * @param {string}  key1       Key to look for.
+ * @param {string}  key1Value  The value the key should have
+ * @param {string}  key2       The key which value we return
+ * @returns {any}    Returns the element's value, or number -1 of nothing found.
+ */
+function getConfigValuePerKey(config, key1, key1Value, key2) {
+    for (let lpConfDevice of config) {
+        if ( lpConfDevice[key1] === key1Value ) {
+            if (lpConfDevice[key2] === undefined) {
+                return -1;
+            } else {
+                return lpConfDevice[key2];
+            }
+        }
+    }
+    return -1;
+}
+
 
 /**
  * For a given state path, we extract the location '0_userdata.0' or 'javascript.0' or add '0_userdata.0', if missing.
