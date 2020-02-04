@@ -23,6 +23,7 @@
  * =====================================================================================
  * -----------------------------------------------------------------------------------------------------------------------
  * Change Log:
+ *  4.0.1 Mic   - Add "jsonDateFormat: 'dd.mm. hh:mm'," to FILTER_LOG, id 'all'.
  *  4.0 Mic     + To allow individual settings per each defined LOG_FILTER, the following global 
  *                settings were moved to LOG_FILTER:
  *                 * JSON_DATE_FORMAT                   -> jsonDateFormat
@@ -271,6 +272,7 @@ const LOG_FILTER = [
     clean:          ['', '', ''], // wird ignoriert, wenn leer
     merge:          true,
     sortDescending: true,
+    jsonDateFormat: 'dd.mm. hh:mm',       
     jsonColumns:    ['date','level','source','msg'],  // Spaltenreihenfolge für JSON (Tabelle in vis)
     jsonLogLength:  100,
     jsonMaxLines:   10,
