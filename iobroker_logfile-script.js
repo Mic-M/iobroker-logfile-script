@@ -23,6 +23,8 @@
  * =====================================================================================
  * -----------------------------------------------------------------------------------------------------------------------
  * Change Log:
+ *  4.6.0    Mic - Pushing 'Log-Script.visView1.clearJSON' will update timestamp of 'Log-Script.logXXX.clearJSON'.
+ *                 See: https://forum.iobroker.net/post/375932
  *  4.5.0    Mic * Simply moved 4.5Alpha into 4.5.0 due to successful user tests. No code changes since 4.5Alpha.
  *  4.5Alpha Mic + Add new states '.All.visViewX' to switch between JSON tables in VIS.
  *               + Add new state '.All.clearAllJSON' to clear all JSON logs of all defined filters at once.
@@ -878,8 +880,14 @@ function stateSubscribeClearAllJSON() {
         // 1. All fitered log states
         const ALL_FILTER_IDS = getAllFilterIds();
         for (let loopFilterId of ALL_FILTER_IDS) {
-            setState(FINAL_STATE_PATH + '.log' + loopFilterId + '.logJSON', '[]');
-            setState(FINAL_STATE_PATH + '.log' + loopFilterId + '.logJSONcount', 0);
+            // Version 4.5.6
+            // See https://forum.iobroker.net/post/375932
+            // We do no longer set the target states directly, but use the according clearJSON instead.
+            // This is to ensure that user can use the clearJSON timestamp for the time of last clearJSON.
+            setState(FINAL_STATE_PATH + '.log' + loopFilterId + '.clearJSON', true);
+            // setState(FINAL_STATE_PATH + '.log' + loopFilterId + '.logJSON', '[]');
+            // setState(FINAL_STATE_PATH + '.log' + loopFilterId + '.logJSONcount', 0);
+
         }
 
         // 2. Vis add-ons
