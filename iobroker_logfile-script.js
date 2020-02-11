@@ -23,16 +23,21 @@
  * =====================================================================================
  * -----------------------------------------------------------------------------------------------------------------------
  * Change Log:
- *  4.0.1 Mic   - Add "jsonDateFormat: 'dd.mm. hh:mm'," to FILTER_LOG, id 'all'.
- *  4.0 Mic     + To allow individual settings per each defined LOG_FILTER, the following global 
- *                settings were moved to LOG_FILTER:
- *                 * JSON_DATE_FORMAT                   -> jsonDateFormat
- *                 * JSON_LEN                           -> jsonLogLength
- *                 * JSON_NO_ENTRIES                    -> jsonMaxLines
- *                 * JSON_APPLY_CSS_LIMITED_TO_LEVEL    -> jsonCssToLevel
- *                 * L_SORT_ORDER_DESC                  -> sortDescending
- *              + Code improvements
- *              + Renamed LOG_NO_OF_ENTRIES to MAX_LOG_LINES
+ *  4.5.0    Mic * Simply moved 4.5Alpha into 4.5.0 due to successful user tests. No code changes since 4.5Alpha.
+ *  4.5Alpha Mic + Add new states '.All.visViewX' to switch between JSON tables in VIS.
+ *               + Add new state '.All.clearAllJSON' to clear all JSON logs of all defined filters at once.
+ *               + Add new state '.All.kastTimeUpdated' to provide the time of the last update (schedule)
+ *                 of the script in a state for Visualization.
+ *  4.0.1 Mic    - Add "jsonDateFormat: 'dd.mm. hh:mm'," to FILTER_LOG, id 'all'.
+ *  4.0 Mic      + To allow individual settings per each defined LOG_FILTER, the following global 
+ *                 settings were moved to LOG_FILTER:
+ *                  * JSON_DATE_FORMAT                   -> jsonDateFormat
+ *                  * JSON_LEN                           -> jsonLogLength
+ *                  * JSON_NO_ENTRIES                    -> jsonMaxLines
+ *                  * JSON_APPLY_CSS_LIMITED_TO_LEVEL    -> jsonCssToLevel
+ *                  * L_SORT_ORDER_DESC                  -> sortDescending
+ *               + Code improvements
+ *               + Renamed LOG_NO_OF_ENTRIES to MAX_LOG_LINES
  *  ---------------------------------------------------------------------------------------------------- 
  *  3.4 Mic     + Support both '0_userdata.0' and 'javascript.x' for state creation
  *  3.3 Mic     - Fix state path
@@ -148,6 +153,7 @@ const BLACKLIST_GLOBAL = [
 	'',
 	'',
 ];
+
 
 /**
  * Zusatz-Einstellung für Option "merge" für LOG_FILTER (unter "Konfiguration: Datenpunkte und Filter"):
@@ -272,7 +278,7 @@ const LOG_FILTER = [
     clean:          ['', '', ''], // wird ignoriert, wenn leer
     merge:          true,
     sortDescending: true,
-    jsonDateFormat: 'dd.mm. hh:mm',       
+    jsonDateFormat: 'dd.mm. hh:mm',
     jsonColumns:    ['date','level','source','msg'],  // Spaltenreihenfolge für JSON (Tabelle in vis)
     jsonLogLength:  100,
     jsonMaxLines:   10,
@@ -289,6 +295,20 @@ const LOG_FILTER = [
     sortDescending: true,
     jsonDateFormat: 'dd.mm. hh:mm',
     jsonColumns:    ['date','level','source','msg'],
+    jsonLogLength:  100,
+    jsonMaxLines:   10,
+    jsonCssToLevel: true,
+  },
+  {
+    id:             'warn',
+    filter_all:     [' - warn: ', ''],  // nur Logeinträge mit Level 'warn'
+    filter_any:     [''],
+    blacklist:      ['', '', ''],
+    clean:          ['', '', ''],
+    merge:          true,
+    sortDescending: true,
+    jsonColumns:    ['date','level','source','msg'],
+    jsonDateFormat: 'dd.mm. hh:mm',
     jsonLogLength:  100,
     jsonMaxLines:   60,
     jsonCssToLevel: true,
@@ -312,7 +332,7 @@ const LOG_FILTER = [
     filter_all:     ['', ''],
     filter_any:     [' - error: ', ' - warn: '],  // nur Logeinträge mit Levels 'warn' und 'error'
     blacklist:      ['', 'no playback content', 'Ignore! Actual secret is '],
-    clean:          ['', '', ''],
+    clean:          ['script.js.Geräte.Wand-Tablet_Wohnzimmer.Huawai_Fully-und-PowerSupply: ', '', ''],
     merge:          true,
     sortDescending: true,
     jsonDateFormat: 'dd.mm. hh:mm',
@@ -322,10 +342,10 @@ const LOG_FILTER = [
     jsonCssToLevel: true,
   },
   {
-    // Beispiel, um einen bestimmten Adapter zu überwachen.
-    // Hier werden alle Fehler und Warnungen des Homematic-Adapters hm-rpc.0 gelistet.
+    // Beispiel, um Adapter zu überwachen.
+    // Hier werden alle Fehler und Warnungen der Homematic-Adapters hm-rpc.0 und hm-rega.0 gelistet.
     id:             'homematic',
-    filter_all:     ['hm-rpc.0', ''],  // hm-rpc.0 muss enthalten sein.
+    filter_all:     ['hm-rpc.0', 'hm-rega.0'],
     filter_any:     [' - error: ', ' - warn: '],  // entweder error oder warn
     blacklist:      ['', '', ''],
     clean:          ['', '', ''],
@@ -337,8 +357,18 @@ const LOG_FILTER = [
     jsonMaxLines:   60,
     jsonCssToLevel: true,
   },
-
 ];
+
+/*******************************************************************************
+ * Optionale Konfiguration: Auswahl Log-Filter für VIS unterhalb ".All"
+ ******************************************************************************/
+// Wenn man in VIS eine Tabelle der Logs ausgibt, kann man hiermit mit Buttons
+// ('Homematic', 'Warnungen', 'Fehler' usw. zwischen den einzelnen Filtern umschalten,
+// die dann dynamisch jeweils in dieser einen Tabelle ausgegeben werden.
+// Hier die Anzahl der unterschiedlichen VIS-Views angeben, in denen du das brauchst.
+// Diese werden angelegt unter '.All.visView1', '.All.visView2', usw.
+// Falls auf 0 gestellt, dann werden gar keine Datenpunkte ausgegeben.
+const NUMBER_OF_VIS_VIEWS = 1;
 
 
 /*******************************************************************************
@@ -347,7 +377,7 @@ const LOG_FILTER = [
 
 // Auf true setzen, wenn zur Fehlersuche einige Meldungen ausgegeben werden sollen.
 // Ansonsten bitte auf false stellen.
-const LOG_DEBUG = false;
+const SCRIPT_DEBUG = false;
 
 // Auf true setzen, wenn ein paar Infos dieses Scripts im Log ausgegeben werden dürfen, bei false bleiben die Infos komplett weg.
 const LOG_INFO = true;
@@ -367,12 +397,6 @@ const STATE_UPDATE_SCHEDULE = '*/20 * * * * *'; // alle 20 Sekunden
 
 // Leer lassen! Nur setzen, falls ein eigener Filename für das Logfile verwendet wird für Debug.
 const DEBUG_CUSTOM_FILENAME = '';
-
-// Regex für die Aufteilung des Logs in 1-Datum/Zeit, 3-Level, 5-Quelle und 7-Logtext.
-// Ggf. anzupassen bei anderem Datumsformat im Log. Wir erwarten ein Format
-// wie z.B.: '2018-07-22 12:45:02.769  - info: javascript.0 Stop script script.js.ScriptAbc'
-// Da als String, wurden alle Backslashes "\" mit einem zweiten Backslash escaped.
-const LOG_PATT =  '([0-9_.\\-:\\s]*)(\\s+\\- )(silly|debug|info|warn|error|)(: )([a-z0-9.\\-]*)(\\s)(.*)';
 
 // Debug: Ignore. Wenn dieses String in der Logzeile enthalten ist, dann ignorieren wir es.
 // Dient dazu, dass wir während des Scripts ins Log schreiben können, ohne dass das dieses Script berücksichtigt.
@@ -401,6 +425,25 @@ const DEBUG_EXTENDED_NO_OF_CHARS = 120;
 const FINAL_STATE_LOCATION = validateStatePath(LOG_STATE_PATH, false);
 const FINAL_STATE_PATH = validateStatePath(LOG_STATE_PATH, true);
 
+// Regex für die Aufteilung des Logs in 1-Datum/Zeit, 3-Level, 5-Quelle und 7-Logtext.
+// Ggf. anzupassen bei anderem Datumsformat im Log. Wir erwarten ein Format
+// wie z.B.: '2018-07-22 12:45:02.769  - info: javascript.0 Stop script script.js.ScriptAbc'
+// Da als String, wurden alle Backslashes "\" mit einem zweiten Backslash escaped.
+const LOG_PATT =  '([0-9_.\\-:\\s]*)(\\s+\\- )(silly|debug|info|warn|error|)(: )([a-z0-9.\\-]*)(\\s)(.*)';
+
+// Final number of VIS states. We do not allow more than 9.
+function finalVisStatesQty(qty) {
+    let result = 0;
+    if( (!isLikeEmpty(qty)) && (qty > 0) )  {
+        if(qty > 9) {
+            result = 9;
+        } else {
+            result = qty;
+        }
+    }
+    return result; 
+};
+const FINAL_NUM_OF_VIS_VIEWS = finalVisStatesQty(NUMBER_OF_VIS_VIEWS);
 
 // Merge loglines: define pattern (and escape the merge text)
 // We added an additional backslash '\' to each backslash as these need to be escaped.
@@ -425,24 +468,37 @@ function init() {
     onLogUnregister(G_LogHandler);
     
     // Create all script states
-    createUserStates(FINAL_STATE_LOCATION, false, buildNeededStates(), function() {
-        // -- All states created, so we continue by using callback
+    const NEEDED_STATES = buildNeededStates();
+    createUserStates(FINAL_STATE_LOCATION, false, NEEDED_STATES[0], function() { // force = false
+        createUserStates(FINAL_STATE_LOCATION, true, NEEDED_STATES[1], function() { // force = true
+            
+            // -- All states created, so we continue by using callback
 
-        // Subscribe on changes: Pressed button "clearJSON"
-        subscribeClearJson();
+            // Subscribe on changes: Pressed button "clearJSON"
+            subscribeClearJson();
 
-        // Subscribe to log handler
-        G_LogHandler = onLog('*', data => { // please disregard the red squiggly underline under '*', see Github issue: https://github.com/ioBroker/ioBroker.javascript/issues/457
-            processNewLogLine(data);
+            // Subscribe to log handler
+            G_LogHandler = onLog('*', data => { // please ignore the red squiggly underline under '*', see Github issue: https://github.com/ioBroker/ioBroker.javascript/issues/457
+                processNewLogLine(data);
+            });
+
+            // Schedule writing changes into states
+            clearSchedule(G_Schedule_StateUpdate);
+            G_Schedule_StateUpdate = schedule(STATE_UPDATE_SCHEDULE, processNewLogsPerSchedule);
+
+            // Subscribe to clear all states
+            stateSubscribeClearAllJSON()
+
+            // Subscribe to states for the VIS views
+            if(FINAL_NUM_OF_VIS_VIEWS > 0) {
+                stateSubscribeVisWhichFilter(); // which Filter
+                stateSubscribeVisClearJson(); // clear JSON
+            }
+
+            // Message
+            if (LOG_INFO) log('Start monitoring of the ioBroker log...', 'info');
+
         });
-
-        // Schedule writing changes into states
-        clearSchedule(G_Schedule_StateUpdate);
-        G_Schedule_StateUpdate = schedule(STATE_UPDATE_SCHEDULE, processNewLogsPerSchedule);
-
-        // Message
-        if (LOG_INFO) log('Start monitoring of the ioBroker log...', 'info');
-
     });
 
 }
@@ -473,8 +529,8 @@ function processNewLogLine(data) {
             G_NewLogLinesArrayToProcess.push(newLogEntry);
 
             // some debugging
-            if (LOG_DEBUG) log (DEBUG_IGNORE_STR + '===============================================================');
-            if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'New Log Entry, Len (' + newLogEntry.length + '), content: [' + newLogEntry + ']');
+            if (SCRIPT_DEBUG) log (DEBUG_IGNORE_STR + '===============================================================');
+            if (SCRIPT_DEBUG) log (DEBUG_IGNORE_STR + 'New Log Entry, Len (' + newLogEntry.length + '), content: [' + newLogEntry + ']');
 
             // This is for debugging purposes, and it will log every new log entry once again. See DEBUG_EXTENDED option above.
             if (DEBUG_EXTENDED) {
@@ -520,6 +576,10 @@ function processNewLogsPerSchedule() {
         processLogArrayAndSetStates(logArrayToProcessFiltered);
 
     }
+
+    // Finally, set updatestate with current date/time
+    setState(FINAL_STATE_PATH + '.All.lastTimeUpdated', Date.now());    
+
 }
 
 
@@ -613,10 +673,10 @@ function processLogArrayAndSetStates(arrayLogInput) {
 
             if (isLikeEmpty(lpNewLogLine)) {
                 // No log content for the given filter id.
-                if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'Filter  [' + lpFilterId + ']: No match.');
+                if (SCRIPT_DEBUG) log (DEBUG_IGNORE_STR + 'Filter  [' + lpFilterId + ']: No match.');
             } else {
 
-                if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'Filter [' + lpFilterId + ']: Match! New Log Line length: (' + lpNewLogLine.length + ')');
+                if (SCRIPT_DEBUG) log (DEBUG_IGNORE_STR + 'Filter [' + lpFilterId + ']: Match! New Log Line length: (' + lpNewLogLine.length + ')');
 
                 // Append new log line to result array
                 if (isLikeEmpty(resultArr[lpFilterId])) {
@@ -689,7 +749,7 @@ function processLogArrayAndSetStates(arrayLogInput) {
             // -1- Full Log, String, separated by "\n"
             ///////////////////////////////
             let strResult = lpNewFinalLogArray.join("\n");
-            if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'New length to be set into state: (' + strResult.length + '), state: [' + lpStatePath1stPart + '.log' + ']');
+            if (SCRIPT_DEBUG) log (DEBUG_IGNORE_STR + 'New length to be set into state: (' + strResult.length + '), state: [' + lpStatePath1stPart + '.log' + ']');
 
             setState(lpStatePath1stPart + '.log', strResult);
 
@@ -754,10 +814,38 @@ function processLogArrayAndSetStates(arrayLogInput) {
             } 
         }
     }
+
+    /*****************
+     * [4] Finally done. Now we set states for the VIS views.
+     *****************/
+    if(FINAL_NUM_OF_VIS_VIEWS > 0) {
+        
+        setTimeout(function() { // Apply timeout, to ensure all states are set.
+
+            for(let i = 0; i < FINAL_NUM_OF_VIS_VIEWS; i++) {
+                let lpStateViewSelFilter = FINAL_STATE_PATH + '.All.visView' + (i+1); // like: 0_userdata.0.Log-Script.All.visView1.whichFilter
+                let currentVisFilter = getState(lpStateViewSelFilter + '.whichFilter').val;
+                if(! isLikeEmpty(currentVisFilter)) {
+                    let jsonStateToGet = LOG_STATE_PATH + '.log' + currentVisFilter + '.logJSON';
+                    if( isState(jsonStateToGet) ) {
+                        setState(lpStateViewSelFilter + '.outputJSON', getState(jsonStateToGet).val); // Finally: set state
+                        setState(lpStateViewSelFilter + '.outputJSONcount', getState(jsonStateToGet + 'count').val); // Finally: set state
+                    } else {
+                        log('Log-Script-Fehler: Gewählter Filter ' +  currentVisFilter + ', aber Datenpunkt [' + jsonStateToGet + '] ist nicht vorhanden.', 'error');
+                    }
+                }
+            }
+        }, 2000);
+    }
 }
 
+/*************************************************************************************************************************
+ * Script specific supporting functions
+ *************************************************************************************************************************/
+
 /**
- * This will allow to set Json log to zero if button is pressed.
+ * Subscribe to all Log-Script.logXXXX.clearJSON
+ * This will allow to clear JSON log if button is pressed.
  */
 function subscribeClearJson() {
     // Set current date to state if button is pressed
@@ -770,20 +858,94 @@ function subscribeClearJson() {
             let stateBtnPth = obj.id // e.g. [javascript.0.Log-Script.logInfo.clearJSON]
             let firstPart = stateBtnPth.substring(0, stateBtnPth.length-10); // get first part of obj.id, like "javascript.0.Log-Script.logInfo"
             let filterID = firstPart.slice(firstPart.lastIndexOf('.') + 1); // gets the filter id, like "logInfo"
-            if (LOG_DEBUG) log(DEBUG_IGNORE_STR + 'Clear JSON states for [' + filterID + '].');
+            if (SCRIPT_DEBUG) log(DEBUG_IGNORE_STR + 'Clear JSON states for [' + filterID + '].');
             // We clear the according JSON states
             setState(firstPart + '.logJSON', '[]');
             setState(firstPart + '.logJSONcount', 0);
 
         });
     }
-    if (LOG_DEBUG) log('Subscribing to Clear JSON Buttons: ' + logSubscribe)
+    if (SCRIPT_DEBUG) log (DEBUG_IGNORE_STR + 'Subscribing to Clear JSON Buttons: ' + logSubscribe)
+}
+
+/**
+ * Subscribe to all .All.clearAllJSON
+ */
+function stateSubscribeClearAllJSON() {
+
+    on({id: FINAL_STATE_PATH + '.All.clearAllJSON', change: 'any', val: true}, function (obj) {
+
+        // 1. All fitered log states
+        const ALL_FILTER_IDS = getAllFilterIds();
+        for (let loopFilterId of ALL_FILTER_IDS) {
+            setState(FINAL_STATE_PATH + '.log' + loopFilterId + '.logJSON', '[]');
+            setState(FINAL_STATE_PATH + '.log' + loopFilterId + '.logJSONcount', 0);
+        }
+
+        // 2. Vis add-ons
+        if(FINAL_NUM_OF_VIS_VIEWS > 0) {
+            for(let i = 0; i < FINAL_NUM_OF_VIS_VIEWS; i++) {
+                let lpState = FINAL_STATE_PATH + '.All.visView' + (i+1);
+                setState(lpState + '.outputJSON', '[]');
+                setState(lpState + '.outputJSONcount', 0);
+            }
+        }
+    });
+
 }
 
 
-/*************************************************************************************************************************
- * Script specific supporting functions
- *************************************************************************************************************************/
+/**
+ * Subscribe to .All.visViewX.whichFilter
+ */
+function stateSubscribeVisWhichFilter() {
+    if(FINAL_NUM_OF_VIS_VIEWS > 0) {
+        for(let i = 0; i < FINAL_NUM_OF_VIS_VIEWS; i++) {
+            let lpState = FINAL_STATE_PATH + '.All.visView' + (i+1);
+            on({id: lpState + '.whichFilter', change: 'ne'}, function (obj) {
+                if(!isLikeEmpty(obj.state.val)) {
+                    let firstStatePart = obj.id.substr(0, (obj.id.length - obj.id.split('.').pop().length - 1)); // Gibt von '0_userdata.0.System.Log-Script.All.visView1.whichFilter' nur den Hauptteil ohne String nach letztem Punkt zurück, also "0_userdata.0.System.Log-Script.All.visView1"
+                    setState(firstStatePart + '.' + 'outputJSON', getState(LOG_STATE_PATH + '.log' + obj.state.val + '.logJSON').val);
+                    setState(firstStatePart + '.' + 'outputJSONcount', getState(LOG_STATE_PATH + '.log' + obj.state.val + '.logJSONcount').val);
+                }
+            });
+        }
+    }
+}
+
+/**
+ * Subscribe to all .All.visViewX.clearJSON
+ */
+function stateSubscribeVisClearJson() {
+    if(FINAL_NUM_OF_VIS_VIEWS > 0) {
+        for(let i = 0; i < FINAL_NUM_OF_VIS_VIEWS; i++) {
+            let lpState = FINAL_STATE_PATH + '.All.visView' + (i+1);
+            on({id: lpState + '.clearJSON', change: 'any', val: true}, function (obj) {
+                let firstStatePart = obj.id.substr(0, (obj.id.length - obj.id.split('.').pop().length - 1)); // Gibt von '0_userdata.0.System.Log-Script.All.visView1.clearJSON' nur den Hauptteil ohne String nach letztem Punkt zurück, also "0_userdata.0.System.Log-Script.All.visView1"
+                let selectedFilter = getState(firstStatePart + '.whichFilter').val;
+                if(!isLikeEmpty(selectedFilter)) {    
+                    setState(firstStatePart + '.outputJSON', '[]'); // .All.visViewX.outputJSON leeren
+                    setState(firstStatePart + '.outputJSONcount', 0); // .All.visViewX.outputJSONcount leeren
+                    setState(FINAL_STATE_PATH + '.log' + selectedFilter + '.clearJSON', true); // Log-Script.logXXXX.clearJSON leeren
+                }             
+            });
+        }
+    }
+}
+
+/**
+ * Get all filter ids into an array (Homematic, Warnanderror, etc.)
+ * @return [array] Filter ids in Array
+ */
+function getAllFilterIds() {
+    let allFilterIds = [];
+    for(let i = 0; i < LOG_FILTER.length; i++) {
+        let lpIDClean = cleanseStatePath(LOG_FILTER[i].id)
+        if (LOG_FILTER[i].id !== '') allFilterIds.push(lpIDClean); // für VIS add-on states
+    };
+    return allFilterIds;
+}
+
 
 /**
  * Reformats a log date string accordingly
@@ -1026,7 +1188,7 @@ function getCurrentFullFsLogPath() {
  */
 function clearJsonByDate(inputArray, stateForTimeStamp) {
     let dtState = new Date(getState(stateForTimeStamp).ts);
-    if (LOG_DEBUG) log (DEBUG_IGNORE_STR + 'Time of last change of state [' + stateForTimeStamp + ']: ' + dtState);
+    if (SCRIPT_DEBUG) log (DEBUG_IGNORE_STR + 'Time of last change of state [' + stateForTimeStamp + ']: ' + dtState);
     let newArray = [];
     for (let lpLog of inputArray) {
         let dtLog = new Date(lpLog.substr(0,23));
@@ -1037,50 +1199,34 @@ function clearJsonByDate(inputArray, stateForTimeStamp) {
   return newArray;
 }
 
-
 /**
  * Build an array of states we need to create.
- * @return {array} Array of states to be created. Format: see function createUserStates()
+ * @return {array} 2 array of states to be created. First is for force=false, second is for force=true.
  */
 function buildNeededStates() {
 
-    let logCleanIDs = '';
+    let debugCleanIDs = '';  // für Debug-Ausgabe
     let statesArray = [];
-    if (! isLikeEmpty(LOG_FILTER)) {
-        for(let i = 0; i < LOG_FILTER.length; i++) {
-            if (LOG_FILTER[i].id !== '') {
-                let lpIDClean = cleanseStatePath(LOG_FILTER[i].id);
-                logCleanIDs += ((logCleanIDs === '') ? '' : '; ') + lpIDClean;
 
-                statesArray.push({ id:'log' + lpIDClean + '.log', name:'Filtered Log - ' + lpIDClean, type:"string", role: "state", def: ""});
-                statesArray.push({ id:'log' + lpIDClean + '.logJSON', name:'Filtered Log - ' + lpIDClean + ' - JSON', type:"string", role: "state", def: ""});
-                statesArray.push({ id:'log' + lpIDClean + '.logJSONcount', name:'Filtered Log - Count of JSON ' + lpIDClean, role: "state", type:"number", def: 0});
-                statesArray.push({ id:'log' + lpIDClean + '.clearJSON', name:'Clear JSON log ' + lpIDClean, role: "button", type:"boolean", def: false});
+    for(let i = 0; i < LOG_FILTER.length; i++) {
+        if (LOG_FILTER[i].id !== '') {
+            let lpIDClean = cleanseStatePath(LOG_FILTER[i].id);
+            debugCleanIDs += ((debugCleanIDs === '') ? '' : '; ') + lpIDClean; // für Debug-Ausgabe
 
-                /**
-                 *  Backward compatibility & cleanup: removing states not needed
-                 */
-                // State .logMostRecent removed with script version 2.0a onwards as it does not make sense any longer due to scheduled update
-                let lpRetiredState = FINAL_STATE_PATH + '.log' + lpIDClean + '.logMostRecent';
-                if (isState(lpRetiredState, true))  {
-                    deleteState(lpRetiredState);
-                    if (LOG_INFO) log('Remove retired state: ' + lpRetiredState, 'info');
-                }
-                // State .clearJSONtime removed with script version 1.2 onwards as we use now time stamp of button '.clearJSON'.
-                lpRetiredState = FINAL_STATE_PATH + '.log' + lpIDClean + '.clearJSONtime';
-                if (isState(lpRetiredState, true))  {
-                    deleteState(lpRetiredState);
-                    if (LOG_INFO) log('Remove retired state: ' + lpRetiredState, 'info');
-                }
-																																														  
-            }
+            statesArray.push({ id:'log' + lpIDClean + '.log', name:'Filtered Log - ' + lpIDClean, type:"string", role: "state", def: ""});
+            statesArray.push({ id:'log' + lpIDClean + '.logJSON', name:'Filtered Log - ' + lpIDClean + ' - JSON', type:"string", role: "state", def: ""});
+            statesArray.push({ id:'log' + lpIDClean + '.logJSONcount', name:'Filtered Log - Count of JSON ' + lpIDClean, role: "state", type:"number", def: 0});
+            statesArray.push({ id:'log' + lpIDClean + '.clearJSON', name:'Clear JSON log ' + lpIDClean, role: "button", type:"boolean", def: false});
+
         }
-        if (LOG_DEBUG) log('createLogStates(): Clean IDs: ' + logCleanIDs);
     }
+    if (SCRIPT_DEBUG) log (DEBUG_IGNORE_STR + 'createLogStates(): Clean IDs: ' + debugCleanIDs);
 
-    let finalStates = [];
+
+    let finalStatesForceFalse = [];
+    let finalStatesForceTrue = [];
     for (let s=0; s < statesArray.length; s++) {
-        finalStates.push([FINAL_STATE_PATH + '.' + statesArray[s].id, {
+        finalStatesForceFalse.push([FINAL_STATE_PATH + '.' + statesArray[s].id, {
             'name': statesArray[s].name,
             'desc': statesArray[s].name,
             'type': statesArray[s].type,
@@ -1090,7 +1236,34 @@ function buildNeededStates() {
             'def': statesArray[s].def,
         }]);
     }
-    return finalStates;
+
+    // Jetzt noch die VIS Add-on states (All.visView1, All.visView2, etc.)
+    if(FINAL_NUM_OF_VIS_VIEWS > 0) {
+        let dropdown = '';
+        const ALL_FILTER_IDS = getAllFilterIds();
+        for (let lpEntry of ALL_FILTER_IDS) {
+            dropdown += '"' + lpEntry + '":"' + lpEntry + '",'; // fill JSON string
+        }
+        dropdown = dropdown.substr(0, dropdown.length-1); // remove last comma ","
+        dropdown = '{' + dropdown + '}'; // finalize JSON string
+        let dropdownJSON = JSON.parse(dropdown); // convert to JSON
+        for(let i = 0; i < FINAL_NUM_OF_VIS_VIEWS; i++) {
+            let lpStateVisViews = FINAL_STATE_PATH + '.All.visView' + (i+1);
+            finalStatesForceTrue.push ([lpStateVisViews + '.whichFilter', {'name':'Für VIS-Button/Auswahlmenü des anzuzeigenden Filter in JSON-Tabelle', 'type':'string', 'read':false, 'write':true, 'role':'value', 'states': dropdownJSON, 'def': ALL_FILTER_IDS[0]}]); // force true to rebuild state drop-down
+            finalStatesForceTrue.push ([lpStateVisViews + '.outputJSON',  {'name': 'JSON-Ausgabe des in whichFilter gewählten Filters', 'type': 'string', 'read': true, 'write': false, 'role': 'state', 'def': '' }]); // force true to empty on re-start of script.
+            finalStatesForceFalse.push ([lpStateVisViews + '.outputJSONcount',  {'name': 'Anzahl Zeilen in JSON-Ausgabe des in whichFilter gewählten Filters', 'type': 'number', 'read': true, 'write': false, 'role': 'state', 'def': 0 }]);
+            finalStatesForceFalse.push([lpStateVisViews + '.clearJSON',   {'name':'Clear currently selected JSON Log', 'type':'boolean', 'read':false, 'write':true, 'role':'button', 'def': false }]);
+        }
+    }
+
+    // Nun noch Button zum leeren ALLER JSONs
+    finalStatesForceFalse.push([FINAL_STATE_PATH + '.All.clearAllJSON',   {'name':'Clear ALL JSON logs', 'type':'boolean', 'read':false, 'write':true, 'role':'button', 'def': false }]);
+
+    // Zeit letztes Update
+    finalStatesForceFalse.push([FINAL_STATE_PATH + '.All.lastTimeUpdated',   {'name':'Date/Time of last update', 'type':'number', 'read':true, 'write':false, 'role':'value.time'}]);
+
+    // Done.
+    return [finalStatesForceFalse, finalStatesForceTrue];
 }
 
 /**
@@ -1587,4 +1760,3 @@ function createUserStates(where, force, statesToCreate, callback = undefined) {
         });
     }
 }
-
