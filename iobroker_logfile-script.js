@@ -23,6 +23,7 @@
  * =====================================================================================
  * -----------------------------------------------------------------------------------------------------------------------
  * Change Log:
+ *  4.7      Mic - Fixed issue if NUMBER_OF_VIS_VIEWS = 0
  *  4.6.0    Mic - Pushing 'Log-Script.visView1.clearJSON' will update timestamp of 'Log-Script.logXXX.clearJSON'.
  *                 See: https://forum.iobroker.net/post/375932
  *  4.5.0    Mic * Simply moved 4.5Alpha into 4.5.0 due to successful user tests. No code changes since 4.5Alpha.
@@ -468,39 +469,37 @@ function init() {
 
     // Unsubscribe log handler
     onLogUnregister(G_LogHandler);
-    
-    // Create all script states
-    const NEEDED_STATES = buildNeededStates();
-    createUserStates(FINAL_STATE_LOCATION, false, NEEDED_STATES[0], function() { // force = false
-        createUserStates(FINAL_STATE_LOCATION, true, NEEDED_STATES[1], function() { // force = true
-            
-            // -- All states created, so we continue by using callback
 
-            // Subscribe on changes: Pressed button "clearJSON"
-            subscribeClearJson();
+    // Create script states
+    createLogScriptStates(function() {
 
-            // Subscribe to log handler
-            G_LogHandler = onLog('*', data => { // please ignore the red squiggly underline under '*', see Github issue: https://github.com/ioBroker/ioBroker.javascript/issues/457
-                processNewLogLine(data);
-            });
+        // -- All states created, so we continue by using callback
 
-            // Schedule writing changes into states
-            clearSchedule(G_Schedule_StateUpdate);
-            G_Schedule_StateUpdate = schedule(STATE_UPDATE_SCHEDULE, processNewLogsPerSchedule);
+        // Subscribe on changes: Pressed button "clearJSON"
+        subscribeClearJson();
 
-            // Subscribe to clear all states
-            stateSubscribeClearAllJSON()
-
-            // Subscribe to states for the VIS views
-            if(FINAL_NUM_OF_VIS_VIEWS > 0) {
-                stateSubscribeVisWhichFilter(); // which Filter
-                stateSubscribeVisClearJson(); // clear JSON
-            }
-
-            // Message
-            if (LOG_INFO) log('Start monitoring of the ioBroker log...', 'info');
-
+        // Subscribe to log handler
+        G_LogHandler = onLog('*', data => { // please ignore the red squiggly underline under '*', see Github issue: https://github.com/ioBroker/ioBroker.javascript/issues/457
+            processNewLogLine(data);
         });
+
+        // Schedule writing changes into states
+        clearSchedule(G_Schedule_StateUpdate);
+        G_Schedule_StateUpdate = schedule(STATE_UPDATE_SCHEDULE, processNewLogsPerSchedule);
+
+        // Subscribe to clear all states
+        stateSubscribeClearAllJSON()
+
+        // Subscribe to states for the VIS views
+        if(FINAL_NUM_OF_VIS_VIEWS > 0) {
+            stateSubscribeVisWhichFilter(); // which Filter
+            stateSubscribeVisClearJson(); // clear JSON
+        }
+
+        // Message
+        if (LOG_INFO) log('Start monitoring of the ioBroker log...', 'info');
+
+
     });
 
 }
@@ -1214,38 +1213,44 @@ function clearJsonByDate(inputArray, stateForTimeStamp) {
 function buildNeededStates() {
 
     let debugCleanIDs = '';  // für Debug-Ausgabe
-    let statesArray = [];
+    let finalStatesForceFalse = []; // to return all states to be created with option force=false
+    let finalStatesForceTrue = [];  // to return all states to be created with option force=true
 
+
+    //////////////////////////////////////////////
+    // All filter states like .logInfo, .logError, etc.
+    //////////////////////////////////////////////
+    let tmpStatesArray = [];
     for(let i = 0; i < LOG_FILTER.length; i++) {
         if (LOG_FILTER[i].id !== '') {
             let lpIDClean = cleanseStatePath(LOG_FILTER[i].id);
             debugCleanIDs += ((debugCleanIDs === '') ? '' : '; ') + lpIDClean; // für Debug-Ausgabe
 
-            statesArray.push({ id:'log' + lpIDClean + '.log', name:'Filtered Log - ' + lpIDClean, type:"string", role: "state", def: ""});
-            statesArray.push({ id:'log' + lpIDClean + '.logJSON', name:'Filtered Log - ' + lpIDClean + ' - JSON', type:"string", role: "state", def: ""});
-            statesArray.push({ id:'log' + lpIDClean + '.logJSONcount', name:'Filtered Log - Count of JSON ' + lpIDClean, role: "state", type:"number", def: 0});
-            statesArray.push({ id:'log' + lpIDClean + '.clearJSON', name:'Clear JSON log ' + lpIDClean, role: "button", type:"boolean", def: false});
+            tmpStatesArray.push({ id:'log' + lpIDClean + '.log', name:'Filtered Log - ' + lpIDClean, type:"string", role: "state", def: ""});
+            tmpStatesArray.push({ id:'log' + lpIDClean + '.logJSON', name:'Filtered Log - ' + lpIDClean + ' - JSON', type:"string", role: "state", def: ""});
+            tmpStatesArray.push({ id:'log' + lpIDClean + '.logJSONcount', name:'Filtered Log - Count of JSON ' + lpIDClean, role: "state", type:"number", def: 0});
+            tmpStatesArray.push({ id:'log' + lpIDClean + '.clearJSON', name:'Clear JSON log ' + lpIDClean, role: "button", type:"boolean", def: false});
 
         }
+    }
+    // TODO: kind of redundant, just apply all before and push right away into finalStatesForceFalse and not into tempStatesArray
+    for (let s=0; s < tmpStatesArray.length; s++) {
+        finalStatesForceFalse.push([FINAL_STATE_PATH + '.' + tmpStatesArray[s].id, {
+            'name': tmpStatesArray[s].name,
+            'desc': tmpStatesArray[s].name,
+            'type': tmpStatesArray[s].type,
+            'read': true,
+            'write': true,
+            'role': tmpStatesArray[s].role,
+            'def': tmpStatesArray[s].def,
+        }]);
     }
     if (SCRIPT_DEBUG) log (DEBUG_IGNORE_STR + 'createLogStates(): Clean IDs: ' + debugCleanIDs);
 
 
-    let finalStatesForceFalse = [];
-    let finalStatesForceTrue = [];
-    for (let s=0; s < statesArray.length; s++) {
-        finalStatesForceFalse.push([FINAL_STATE_PATH + '.' + statesArray[s].id, {
-            'name': statesArray[s].name,
-            'desc': statesArray[s].name,
-            'type': statesArray[s].type,
-            'read': true,
-            'write': true,
-            'role': statesArray[s].role,
-            'def': statesArray[s].def,
-        }]);
-    }
-
-    // Jetzt noch die VIS Add-on states (All.visView1, All.visView2, etc.)
+    //////////////////////////////////////////////
+    // VIS Add-on states (All.visView1, All.visView2, etc.)
+    //////////////////////////////////////////////
     if(FINAL_NUM_OF_VIS_VIEWS > 0) {
         let dropdown = '';
         const ALL_FILTER_IDS = getAllFilterIds();
@@ -1264,15 +1269,48 @@ function buildNeededStates() {
         }
     }
 
-    // Nun noch Button zum leeren ALLER JSONs
+    //////////////////////////////////////////////
+    // Some more states
+    //////////////////////////////////////////////
+
+    // Button zum leeren ALLER JSONs
     finalStatesForceFalse.push([FINAL_STATE_PATH + '.All.clearAllJSON',   {'name':'Clear ALL JSON logs', 'type':'boolean', 'read':false, 'write':true, 'role':'button', 'def': false }]);
 
-    // Zeit letztes Update
+    // Zeit letztes Script-Update (Schedule)
     finalStatesForceFalse.push([FINAL_STATE_PATH + '.All.lastTimeUpdated',   {'name':'Date/Time of last update', 'type':'number', 'read':true, 'write':false, 'role':'value.time'}]);
 
     // Done.
     return [finalStatesForceFalse, finalStatesForceTrue];
 }
+
+/**
+ * Creates all script states.
+ */
+function createLogScriptStates(callback) {
+
+    const NEEDED_STATES = buildNeededStates();
+
+    if (!isLikeEmpty(NEEDED_STATES[0])) {
+        createUserStates(FINAL_STATE_LOCATION, false, NEEDED_STATES[0], function() {
+            forceTrue(); // Next is force=true
+        });
+    } else {
+        forceTrue(); // Next is force=true
+    }
+    function forceTrue() {
+        if (!isLikeEmpty(NEEDED_STATES[1])) {
+            createUserStates(FINAL_STATE_LOCATION, true, NEEDED_STATES[1], function() {
+                // Done
+                return callback();
+            });
+        } else {
+            // Done
+            return callback();
+        }
+    }
+}
+
+
 
 /**
  * Converts a timestamp to log date format, like 2019-10-15 16:38:00.260.
