@@ -23,8 +23,11 @@
  * =====================================================================================
  * -----------------------------------------------------------------------------------------------------------------------
  * Change Log:
+ *  4.8      Mic + Allow regular expressions in BLACKLIST_GLOBAL
+ *               + Allow regular expressions in LOG_FILTER: 'blacklist', 'clean', 'filter_all', 'filter_any'
+ *               - Fix: Log line regex, which did not allow upper case letters in host (source)
  *  4.7      Mic - Fixed issue if NUMBER_OF_VIS_VIEWS = 0
- *  4.6.0    Mic - Pushing 'Log-Script.visView1.clearJSON' will update timestamp of 'Log-Script.logXXX.clearJSON'.
+ *  4.6      Mic - Pushing 'Log-Script.visView1.clearJSON' will update timestamp of 'Log-Script.logXXX.clearJSON'.
  *                 See: https://forum.iobroker.net/post/375932
  *  4.5.0    Mic * Simply moved 4.5Alpha into 4.5.0 due to successful user tests. No code changes since 4.5Alpha.
  *  4.5Alpha Mic + Add new states '.All.visViewX' to switch between JSON tables in VIS.
@@ -142,19 +145,24 @@ const REMOVE_PID = true;
  * komplett ignoriert, egal was weiter unten eingestellt wird.
  * Dies dient dazu, um penetrante Logeinträge gar nicht erst zu berücksichtigen.
  * Bitte beachten: 
- * 1. Mindestens 3 Zeichen erforderlich, sonst wird es nicht berücksichtigt (würde auch wenig Sinn ergeben).
+ * 1. Es ist sowohl String als auch Regex erlaubt. Falls String: es wird auf teilweise Übereinstimmung geprüft.
  * 2. Bestehende Datenpunkt-Inhalte dieses Scripts bei Anpassung dieser Option werden nicht nachträglich neu gefiltert,
  *    sondern nur alle neu hinzugefügten Log-Einträge ab Speichern des Scripts werden berücksichtigt.
  */
 const BLACKLIST_GLOBAL = [
     '<==Disconnect system.user.admin from ::ffff:', // web.0 Adapter
-    'system.adapter.ical.0 terminated with code 0 (OK)', 
+    /registered [0-9]+ subscriptions and [0-9]+ schedules/, // Beispiel für Regex
+    /instance system\.adapter\.[^\s]* terminated with code 0 \((NO_ERROR|OK)\)/, // Weiteres Regex-Beispiel
+    /instance system\.adapter\.[^\s]* started with pid [0-9]+/, // Noch ein Regex
+    'Start javascript script.js.',
+    'Stop script script.js.',
     'bring.0 Cannot get translations: RequestError',
     ' reconnected. Old secret ', // Sonoff
     'Popup-News readed...', // info.0 Adapter
     '[warn] Projects disabled : set editorTheme.projects.enabled=true to enable', // see https://forum.iobroker.net/topic/12260/
-	'',
-	'',
+	'[warn] Projects disabled : editorTheme.projects.enabled=false',
+	'Update repository "latest" under',
+
 ];
 
 
@@ -192,18 +200,21 @@ const JSON_APPLY_CSS = true;
  * --------------------------------------------------------------------------------------------------------------------------
  * filter_all:      ALLE Begriffe müssen in der Logzeile enthalten sein. Ist einer der Begriffe nicht enthalten, dann wird der 
  *                  komplette Logeintrag auch nicht übernommen. Leeres Array [] eingeben, falls hier filtern nicht gewünscht.
+ *                  Es ist auch Regex erlaubt.
  * --------------------------------------------------------------------------------------------------------------------------
  * filter_any:      Mindestens einer der gelisteten Begriffe muss enthalten sein. Leeres Array [] eingeben, falls hier filtern
  *                  nicht gewünscht.
+ *                  Es ist auch Regex erlaubt.
  * --------------------------------------------------------------------------------------------------------------------------
  * blacklist:       Schwarze Liste: Wenn einer dieser Begriffe im Logeintrag enthalten ist, so wird der komplette Logeintrag 
  *                  nicht übernommen, egal was vorher in filter_all oder filter_any definiert ist.
- *                  Mindestens 3 Zeichen erforderlich, sonst wird es nicht berücksichtigt.
  *                  HINWEIS: BLACKLIST_GLOBAL wird vorher schon angewendet, hier kannst du einfach nur noch eine individuelle 
  *                  Blackliste pro id definieren.
+ *                  Es ist auch Regex erlaubt.
  * --------------------------------------------------------------------------------------------------------------------------
  * clean:           Der Log-Eintrag wird um diese Zeichenfolgen bereinigt, d.h. diese werden entfernt, aber die restliche Zeile 
  *                  bleibt bestehen. Z.B. um unerwünschte Zeichenfolgen zu entfernen oder Log-Ausgaben zu kürzen.
+ *                  Es ist auch Regex erlaubt.
  * --------------------------------------------------------------------------------------------------------------------------
  * merge:           Log-Einträge mit gleichem Text zusammenfassen. Beispiel:
  *                      -----------------------------------------------------------------------------------
@@ -293,13 +304,13 @@ const LOG_FILTER = [
     filter_all:     [' - info: '], // nur Logeinträge mit Level 'info'
     filter_any:     ['', ''],
     blacklist:      ['', ''],
-    clean:          ['', '', ''],
+    clean:          [/script\.js\.[^:]*: /, ''],
     merge:          true,
     sortDescending: true,
     jsonDateFormat: 'dd.mm. hh:mm',
     jsonColumns:    ['date','level','source','msg'],
     jsonLogLength:  100,
-    jsonMaxLines:   10,
+    jsonMaxLines:   100,
     jsonCssToLevel: true,
   },
   {
@@ -307,13 +318,13 @@ const LOG_FILTER = [
     filter_all:     [' - warn: ', ''],  // nur Logeinträge mit Level 'warn'
     filter_any:     [''],
     blacklist:      ['', '', ''],
-    clean:          ['', '', ''],
+    clean:          [/script\.js\.[^:]*: /, '', ''],
     merge:          true,
     sortDescending: true,
     jsonColumns:    ['date','level','source','msg'],
     jsonDateFormat: 'dd.mm. hh:mm',
     jsonLogLength:  100,
-    jsonMaxLines:   60,
+    jsonMaxLines:   100,
     jsonCssToLevel: true,
   },
   {
@@ -321,35 +332,35 @@ const LOG_FILTER = [
     filter_all:     [' - error: ', ''],  // nur Logeinträge mit Level 'error'
     filter_any:     [''],
     blacklist:      ['', '', ''],
-    clean:          ['', '', ''],
+    clean:          [/script\.js\.[^:]*: /, '', ''],
     merge:          true,
     sortDescending: true,
     jsonColumns:    ['date','level','source','msg'],
     jsonDateFormat: 'dd.mm. hh:mm',
     jsonLogLength:  100,
-    jsonMaxLines:   60,
+    jsonMaxLines:   100,
     jsonCssToLevel: true,
   },
   {
     id:             'warnanderror',
     filter_all:     ['', ''],
     filter_any:     [' - error: ', ' - warn: '],  // nur Logeinträge mit Levels 'warn' und 'error'
-    blacklist:      ['', 'no playback content', 'Ignore! Actual secret is '],
-    clean:          ['script.js.Geräte.Wand-Tablet_Wohnzimmer.Huawai_Fully-und-PowerSupply: ', '', ''],
+    blacklist:      ['no playback content', 'Ignore! Actual secret is '],
+    clean:          [/script\.js\.[^:]*: /, '', ''],
     merge:          true,
     sortDescending: true,
     jsonDateFormat: 'dd.mm. hh:mm',
     jsonColumns:    ['date','level','source','msg'],
     jsonLogLength:  100,
-    jsonMaxLines:   60,
+    jsonMaxLines:   100,
     jsonCssToLevel: true,
   },
   {
     // Beispiel, um Adapter zu überwachen.
     // Hier werden alle Fehler und Warnungen der Homematic-Adapters hm-rpc.0 und hm-rega.0 gelistet.
     id:             'homematic',
-    filter_all:     ['hm-rpc.0', 'hm-rega.0'],
-    filter_any:     [' - error: ', ' - warn: '],  // entweder error oder warn
+    filter_all:     [/hm-(rpc|rega)\.[0-9]/],
+    filter_any:     [' - error: ', ' - warn: ',  ' - info: '],  // entweder error oder warn
     blacklist:      ['', '', ''],
     clean:          ['', '', ''],
     merge:          true,
@@ -357,7 +368,7 @@ const LOG_FILTER = [
     jsonDateFormat: 'dd.mm. hh:mm',
     jsonColumns:    ['date','level','source','msg'],
     jsonLogLength:  100,
-    jsonMaxLines:   60,
+    jsonMaxLines:   100,
     jsonCssToLevel: true,
   },
 ];
@@ -432,7 +443,7 @@ const FINAL_STATE_PATH = validateStatePath(LOG_STATE_PATH, true);
 // Ggf. anzupassen bei anderem Datumsformat im Log. Wir erwarten ein Format
 // wie z.B.: '2018-07-22 12:45:02.769  - info: javascript.0 Stop script script.js.ScriptAbc'
 // Da als String, wurden alle Backslashes "\" mit einem zweiten Backslash escaped.
-const LOG_PATT =  '([0-9_.\\-:\\s]*)(\\s+\\- )(silly|debug|info|warn|error|)(: )([a-z0-9.\\-]*)(\\s)(.*)';
+const LOG_PATT =  '([0-9_.\\-:\\s]*)(\\s+\\- )(silly|debug|info|warn|error|)(: )([^\\s]*)(\\s)(.*)';
 
 // Final number of VIS states. We do not allow more than 9.
 function finalVisStatesQty(qty) {
@@ -471,7 +482,7 @@ function init() {
     onLogUnregister(G_LogHandler);
 
     // Create script states
-    createLogScriptStates(function() {
+    createLogScriptStates(function() { // force = false
 
         // -- All states created, so we continue by using callback
 
@@ -526,12 +537,14 @@ function processNewLogLine(data) {
             // Cleanse and apply blacklist
             newLogEntry = cleanseLogLine(newLogEntry);
 
+            // some debugging
+            // Important: You will need to change onLog('*') to a certain severity so that this will work.
+            // See onLog() Documentation: "Important: you cannot output logs in handler with the same severity to avoid infinite loops."
+            if (SCRIPT_DEBUG) log(DEBUG_IGNORE_STR + '===============================================================', 'warn');
+            if (SCRIPT_DEBUG) log(DEBUG_IGNORE_STR + 'New Log Entry, Len (' + newLogEntry.length + '), content: [' + newLogEntry + ']', 'warn');
+
             // Push result into logArrayFinal
             G_NewLogLinesArrayToProcess.push(newLogEntry);
-
-            // some debugging
-            if (SCRIPT_DEBUG) log (DEBUG_IGNORE_STR + '===============================================================');
-            if (SCRIPT_DEBUG) log (DEBUG_IGNORE_STR + 'New Log Entry, Len (' + newLogEntry.length + '), content: [' + newLogEntry + ']');
 
             // This is for debugging purposes, and it will log every new log entry once again. See DEBUG_EXTENDED option above.
             if (DEBUG_EXTENDED) {
@@ -612,16 +625,17 @@ function applyFilter(strLogEntry) {
             // Now let's iterate over the filter array elements
             // We check if both the "all" and "any" filters  apply. If yes, - and blacklist false - we add the log line.
             for (let k = 0; k < LOG_FILTER.length; k++) {
-                if ( (strMatchesTerms(strLogEntry, LOG_FILTER[k].filter_all, 'every') === true)
-                && (strMatchesTerms(strLogEntry, LOG_FILTER[k].filter_any, 'some') === true)
-                && (strMatchesTerms(strLogEntry, LOG_FILTER[k].blacklist, 'blacklist') === false) ) {
+                
+                if ( (stringMatchesList(strLogEntry, LOG_FILTER[k].filter_all, true) === true)
+                && (stringMatchesList(strLogEntry, LOG_FILTER[k].filter_any, false) === true)
+                && (isBlacklisted(strLogEntry, LOG_FILTER[k].blacklist) === false) ) { 
                     logArrayProcessed[LOG_FILTER[k].id] = logArrayProcessed[LOG_FILTER[k].id] + strLogEntry + "\n";
                 }
                 
-                // Now we remove terms if desired
+                // Now we remove terms if desired per "clean" option
                 if (isLikeEmpty(LOG_FILTER[k].clean) === false) {
                     for (let lpTerm of LOG_FILTER[k].clean) {
-                        if (lpTerm !== '') {
+                        if (! isLikeEmpty(lpTerm)) {
                             logArrayProcessed[LOG_FILTER[k].id] = logArrayProcessed[LOG_FILTER[k].id].replace(lpTerm, '');
                         }
                     }
@@ -984,12 +998,11 @@ function cleanseLogLine(logLine) {
     // Remove color escapes - https://stackoverflow.com/questions/25245716/remove-all-ansi-colors-styles-from-strings
     let logLineResult = logLine.replace(/\u001b\[.*?m/g, ''); 
     // Sometimes, a log line starts with the term "undefined", so we remove it.
-    if (logLineResult.substr(0,9) === 'undefined') logLineResult = logLineResult.substr(9,99999);
+    if (logLineResult.substr(0,9) === 'undefined') logLineResult = logLineResult.substr(9);
     // Remove white space, tab stops, new line
     logLineResult = logLineResult.replace(/\s\s+/g, ' ');
     // Check against global blacklist
-    if(strMatchesTerms(logLineResult, BLACKLIST_GLOBAL, 'blacklist')) logLineResult = '';
-
+    if(isBlacklisted(logLineResult, BLACKLIST_GLOBAL)) logLineResult = '';
 
     return logLineResult;
 }
@@ -1371,6 +1384,76 @@ onStop(function myScriptStop () {
 
 }, 0);
 
+/**
+ * New in Log-Script 4.7
+ * Checks a string against a blacklist.
+ * @param {string}      stringToCheck   String to check against blacklist
+ * @param {array}       blacklistArray  Array of blacklist. Both strings and regexp are allowed.
+ *                                      If string: it will match if blacklist string is part of provided stringToCheck.
+ * @return {boolean}    Returns true, if blacklisted, and false if not.
+ */
+function isBlacklisted(stringToCheck, blacklistArray) {
+
+    if(isLikeEmpty(blacklistArray)) return false;
+
+    for (let lpBlackItem of blacklistArray) {
+        if(! isLikeEmpty(lpBlackItem)) {
+            if (lpBlackItem instanceof RegExp) { // https://stackoverflow.com/questions/4339288/typeof-for-regexp
+                // We have a regex
+                if ( (stringToCheck.match(lpBlackItem) != null) ) {
+                    return true; // We have a hit
+                }
+            } else if (typeof lpBlackItem == 'string') {
+                // No regex, we have a string
+                if(stringToCheck.includes(lpBlackItem)) {
+                    return true; // We have a hit
+                }
+            }
+        }
+    }
+    return false; // No hits
+
+}
+
+/**
+ * New in Log-Script 4.7
+ * Checks a string against an array of strings or regexp.
+ * @param {string}      stringToCheck   String to check against array
+ * @param {array}       listArray       Array of blacklist. Both strings and regexp are allowed.
+  * @param {boolean}    all            If true, then ALL items of listArray must match to return true.
+                                        If false, one match or more will return true
+ * @return {boolean}    true if matching, false if not. 
+  */
+function stringMatchesList(stringToCheck, listArray, all) {
+
+    if(isLikeEmpty(listArray)) return true;
+    let count = 0;
+    let hit = 0;
+    for (let lpListItem of listArray) {
+        if(! isLikeEmpty(lpListItem)) {
+            count = count + 1;
+            if (lpListItem instanceof RegExp) { // https://stackoverflow.com/questions/4339288/typeof-for-regexp
+                // We have a regex
+                if ( (stringToCheck.match(lpListItem) != null) ) {
+                    hit = hit + 1;
+                }
+            } else if (typeof lpListItem == 'string') {
+                // No regex, we have a string
+                if(stringToCheck.includes(lpListItem)) {
+                    hit = hit + 1;
+                }
+            }
+        }
+    }
+    if (count == 0)  return true;
+    if(all) {
+        return (count == hit) ? true : false;
+    } else {
+        return (hit > 0) ? true : false;
+    }
+
+}
+
 
 
 /*************************************************************************************************************************
@@ -1470,61 +1553,6 @@ function cleanseStatePath(stringInput) {
 
 }
 
-
-/**
- * Checks if the string provided contains either every or some terms.
- * Source: https://stackoverflow.com/questions/36283767/javascript-select-the-string-if-it-matches-multiple-words-in-array
- * @param {string} strInput - The string on which we run this search
- * @param {array} arrayTerms - The terms we are searching, e.g. ["hue", "error", "raspberry"]
- * @param {string} type - 'every': all terms must match to be true,
- *                        'some': at least one term (or more) must match
- *                        'blacklist': different here: function will always
- *                         return FALSE, but if one of the arrayTerms contains
- *                         minimum 3 chars and is found in provided string,
- *                         we return TRUE (= blacklisted item found).
- * @return {boolean}       true, if it contains ALL words, false if not all words (or none)
- *                         Also, will return true if arrayTerms is not array or an empty array
- */
-function strMatchesTerms(strInput, arrayTerms, type) {
-    if(type === 'blacklist') {
-        if (Array.isArray(arrayTerms)) {
-            let arrayTermsNew = [];
-            for (let lpTerm of arrayTerms) {
-                if (lpTerm.length >= 3) {
-                    arrayTermsNew.push(lpTerm);
-                }
-            }
-            if(isLikeEmpty(arrayTermsNew) === false) {
-                let bResultBL = arrayTermsNew.some(function(word) {
-                    return strInput.indexOf(word) > -1;
-                });
-                return bResultBL;
-            } else {
-                return false; // return false if no items to be blacklisted
-            }
-        } else {
-            return false; // we return false if the arrayTerms given is not an array. Want to make sure if we really should blacklist...
-        }
-
-    } else {
-        if (Array.isArray(arrayTerms)) {
-            if(type === 'every') {
-                let bResultEvery = arrayTerms.every(function(word) {
-                    return strInput.indexOf(word) > -1;
-                });
-                return bResultEvery;
-            } else if(type === 'some') {
-                let bResultSome = arrayTerms.some(function(word) {
-                    return strInput.indexOf(word) > -1;
-                });
-                return bResultSome;
-            }
-
-        } else {
-            return true; // we return true if the arrayTerms given is not an array
-        }
-    }
-}
 
 /**
  * Checks if a a given state or part of state is existing.
