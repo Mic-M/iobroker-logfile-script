@@ -23,6 +23,9 @@
  * =====================================================================================
  * -----------------------------------------------------------------------------------------------------------------------
  * Change Log:
+ *  4.9      Mic + Add "Heute"/"Gestern" (today/yesterday) option for dates in JSON output instead of actual date
+ *               - Fix: jsonDateFormat: correction of month/minute. Month/Day/Year (mm/dd/yy/yyyy) now require lower case 
+ *                 letters, Hour/Minute/Second (HH/MM/SS) upper case letters to differenciate month (mm) vs. minute (MM)
  *  4.8      Mic + Allow regular expressions in BLACKLIST_GLOBAL
  *               + Allow regular expressions in LOG_FILTER: 'blacklist', 'clean', 'filter_all', 'filter_any'
  *               - Fix: Log line regex, which did not allow upper case letters in host (source)
@@ -235,12 +238,19 @@ const JSON_APPLY_CSS = true;
  *                  Folgende Spalten gibt es: 'date','level','source','msg'. Hier können einzelne Spalten entfernt oder die 
  *                  Reihenfolge verändert werden. Bitte keine anderen Spalten eintragen, sondern nur 'date','level','source','msg'.
  * --------------------------------------------------------------------------------------------------------------------------
- * jsonDateFormat:  Datumsformat für JSON Log. Z.B. volles Datum mit 'YYYY-MM-DD HH:MM:SS' oder nur Uhrzeit mit "HH:MM:SS". Die 
+ * jsonDateFormat:  Datumsformat für JSON Log. Z.B. volles Datum mit 'YYYY-MM-DD hh:mm:ss' oder nur Uhrzeit mit "hh:mm:ss". Die 
  *                  Platzhalter YYYY, MM, DD usw. werden jeweils ersetzt.
- *                  YYYY = Jahr 4stellig (z.B. 2019), YY = Jahr 2stellig (z.B. 19), MM = Monat, DD = Tag, HH = Stunde, MM = Minute, 
- *                  SS = Sekunde. Groß- oder Kleinschreibung ist egal, d.h. YYYY ist das gleiche wie yy.
+ *                  YYYY = Jahr 4stellig (z.B. 2019), MM = Jahr 2stellig (z.B. 20), MM = Monat, DD = Tag, hh = Stunde, mm = Minute, 
+ *                  ss = Sekunde. Auf Groß- und Kleinschreibung achten!
  *                  Die Verbinder (-, :, Leerzeichen, etc.) können im Prinzip frei gewählt werden.
- *                  Beispiele: 'HH:MM:SS' für 19:37:25, 'HH:MM' für 19:37, 'DD.MM. HH:MM' für '25.07. 19:37'
+ *                  Beispiele: 'hh:mm:ss' für 19:37:25, 'hh:mm' für 19:37, 'DD.MM. hh:mm' für '25.07. 19:37'
+ *                  --- Neu seit Script-Version 4.9:
+ *                      Wenn das Datum in "Hash-Zeichen (Raute = #)" gesetzt wird, dann wird es durch "Heute" bzw. "Gestern"
+ *                      ersetzt. Beispiele:
+ *                       - Aus '#DD.MM.# hh:mm'     wird 'Heute 20:35',    falls der Log von heute ist.
+ *                       - Aus '#DD.MM.YYYY# hh:mm' wird 'Gestern 20:35',  falls der Log von gestern ist.
+ *                       - Aus '#DD.MM.YYYY# hh:mm' wird '18.02. 20:35',   falls der Log nicht von heute oder gestern ist.
+ *                       - Aus '#DD.MM.YY# hh:mm'   wird '18.02.20 20:35', falls der Log nicht von heute oder gestern ist.
  * --------------------------------------------------------------------------------------------------------------------------
  * jsonLogLength:   Maximale Anzahl Zeichen jeder einzelnen Log-Meldung im JSON-Log. Alles was länger ist, wird abgeschnitten.
  * --------------------------------------------------------------------------------------------------------------------------
@@ -275,7 +285,7 @@ const LOG_FILTER = [
     clean:          ['****', '!!!!', 'ufo gesichtet'],
     merge:          true,
     sortDescending: true,
-    jsonDateFormat: 'dd.mm. hh:mm',       
+    jsonDateFormat: '#DD.MM.# hh:mm',       
     jsonColumns:    ['source','date','msg'],
     jsonLogLength:  100,
     jsonMaxLines:   10,
@@ -292,7 +302,7 @@ const LOG_FILTER = [
     clean:          ['', '', ''], // wird ignoriert, wenn leer
     merge:          true,
     sortDescending: true,
-    jsonDateFormat: 'dd.mm. hh:mm',
+    jsonDateFormat: '#DD.MM.# hh:mm',
     jsonColumns:    ['date','level','source','msg'],  // Spaltenreihenfolge für JSON (Tabelle in vis)
     jsonLogLength:  100,
     jsonMaxLines:   10,
@@ -307,7 +317,7 @@ const LOG_FILTER = [
     clean:          [/script\.js\.[^:]*: /, ''],
     merge:          true,
     sortDescending: true,
-    jsonDateFormat: 'dd.mm. hh:mm',
+    jsonDateFormat: '#DD.MM.# hh:mm',
     jsonColumns:    ['date','level','source','msg'],
     jsonLogLength:  100,
     jsonMaxLines:   100,
@@ -322,7 +332,7 @@ const LOG_FILTER = [
     merge:          true,
     sortDescending: true,
     jsonColumns:    ['date','level','source','msg'],
-    jsonDateFormat: 'dd.mm. hh:mm',
+    jsonDateFormat: '#DD.MM.# hh:mm',
     jsonLogLength:  100,
     jsonMaxLines:   100,
     jsonCssToLevel: true,
@@ -336,7 +346,7 @@ const LOG_FILTER = [
     merge:          true,
     sortDescending: true,
     jsonColumns:    ['date','level','source','msg'],
-    jsonDateFormat: 'dd.mm. hh:mm',
+    jsonDateFormat: '#DD.MM.# hh:mm',
     jsonLogLength:  100,
     jsonMaxLines:   100,
     jsonCssToLevel: true,
@@ -349,7 +359,7 @@ const LOG_FILTER = [
     clean:          [/script\.js\.[^:]*: /, '', ''],
     merge:          true,
     sortDescending: true,
-    jsonDateFormat: 'dd.mm. hh:mm',
+    jsonDateFormat: '#DD.MM.# hh:mm',
     jsonColumns:    ['date','level','source','msg'],
     jsonLogLength:  100,
     jsonMaxLines:   100,
@@ -365,7 +375,7 @@ const LOG_FILTER = [
     clean:          ['', '', ''],
     merge:          true,
     sortDescending: true,
-    jsonDateFormat: 'dd.mm. hh:mm',
+    jsonDateFormat: '#DD.MM.# hh:mm',
     jsonColumns:    ['date','level','source','msg'],
     jsonLogLength:  100,
     jsonMaxLines:   100,
@@ -409,8 +419,19 @@ const LOG_INFO = true;
 const STATE_UPDATE_SCHEDULE = '*/20 * * * * *'; // alle 20 Sekunden
 
 
+// JSON-Tabelle: ersetze heutiges und gestriges Datum durch 'Heute' bzw. 'Gestern'.
+// Mittels Hash-Zeichen(#) kann in LOG_FILTER in der Option "jsonDateFormat" definiert werden,
+// dass heutiges und gestriges Datum durch 'Heute' bzw. 'Gestern' ersetzt wird.
+// Hier können andere Begriffe statt "Heute"/"Gestern" definiert werden.
+const TXT_TODAY     = 'Heute';
+const TXT_YESTERDAY = 'Gestern';
+
+
+
+
 // Leer lassen! Nur setzen, falls ein eigener Filename für das Logfile verwendet wird für Debug.
 const DEBUG_CUSTOM_FILENAME = '';
+
 
 // Debug: Ignore. Wenn dieses String in der Logzeile enthalten ist, dann ignorieren wir es.
 // Dient dazu, dass wir während des Scripts ins Log schreiben können, ohne dass das dieses Script berücksichtigt.
@@ -469,6 +490,9 @@ let G_LogHandler;  // being set later
 // Schedule for logfile update
 let G_Schedule_StateUpdate; // being set later
 
+// Schedule for midnight JSON update
+let G_Schedule_JsonUpdate; // being set later
+
 // We add here all the new log lines to be processed regularly (per STATE_UPDATE_SCHEDULE);
 let G_NewLogLinesArrayToProcess = [];
 
@@ -498,6 +522,12 @@ function init() {
         clearSchedule(G_Schedule_StateUpdate);
         G_Schedule_StateUpdate = schedule(STATE_UPDATE_SCHEDULE, processNewLogsPerSchedule);
 
+        // Schedule midnight Json update (due to "Heute"/"Gestern" in date)
+        clearSchedule(G_Schedule_JsonUpdate);
+        G_Schedule_JsonUpdate = schedule('1 0 * * *', function() { // Um 00:01 jeden Tag
+            processLogArrayAndSetStates([], true); // update JSON only
+        }); 
+
         // Subscribe to clear all states
         stateSubscribeClearAllJSON()
 
@@ -509,6 +539,12 @@ function init() {
 
         // Message
         if (LOG_INFO) log('Start monitoring of the ioBroker log...', 'info');
+
+        // Update JSON
+        setTimeout(function(){
+            processLogArrayAndSetStates([], true); // update JSON only
+        }, 5000);
+
 
 
     });
@@ -592,7 +628,7 @@ function processNewLogsPerSchedule() {
     }
 
     // Finally, set updatestate with current date/time
-    setState(FINAL_STATE_PATH + '.All.lastTimeUpdated', Date.now());    
+    setState(FINAL_STATE_PATH + '.All.lastTimeUpdated', Date.now());
 
 }
 
@@ -653,15 +689,20 @@ function applyFilter(strLogEntry) {
 /**
  * Further processes the log array and set states accordingly.
  * 
- * @param  arrayLogInput             The Array of the log input.
+ * @param  {array} arrayLogInput     The Array of the log input.
  *                                   Array is like: 
  *                                   [
  *                                      ['info':'15.08.2019 09:27:55.476 info adapt.0 some log', 'error':''],
  *                                      ['info':'15.08.2019 09:33:58.522 info adapt.0 some more log', 'error':''],
  *                                      ['info':'', 'error':'15.08.2019 09:37:55.807 error adapt.0 some error log'],
  *                                   ]
+ * @param {boolean} [updateJsonOnly=false] Optional parameter. If true, then just the JSON states will be updated without
+ *                                         considering arrayLogInput. Used for updated JSON every midnight due to texts
+ *                                         "Today"/"Yesterday" in JSON table.
  **/
-function processLogArrayAndSetStates(arrayLogInput) {
+function processLogArrayAndSetStates(arrayLogInput, updateJsonOnly) {
+
+    let justUpdateJson = (typeof updateJsonOnly == 'undefined') ? false : updateJsonOnly;
 
     /*****************
      * [1] Build array from LOG_FILTER. Looks like: arrayFilterIds = ['info', 'error', 'warn'].
@@ -673,53 +714,65 @@ function processLogArrayAndSetStates(arrayLogInput) {
         arrayFilterIds.push(LOG_FILTER[i].id); // each LOG_FILTER id into array
         resultArr[LOG_FILTER[i].id] = '';
     }
-    /*****************
-     * [2] Process element by element, so ['info':'log test', 'error':'log test'] of given array.
-     * We fill the result array accordingly.
-     *****************/
-    for (let lpElement of arrayLogInput) {
 
-        // Loop thru our new array arrayFilterIds and fill result array
-        for (let k = 0; k < arrayFilterIds.length; k++) {
+    if (! justUpdateJson) {
 
-            // some variables
-            let lpFilterId = arrayFilterIds[k]; // Filter ID from LOG_FILTER, like 'error', 'info', 'custom', etc.
-            let lpNewLogLine = lpElement[lpFilterId]; // Current log line of provided array element of 'error', 'info', 'custom' etc.
+        /*****************
+         * [2] Process element by element, so ['info':'log test', 'error':'log test'] of given array.
+         * We fill the result array accordingly.
+         *****************/
+        for (let lpElement of arrayLogInput) {
 
-            if (isLikeEmpty(lpNewLogLine)) {
-                // No log content for the given filter id.
-                if (SCRIPT_DEBUG) log (DEBUG_IGNORE_STR + 'Filter  [' + lpFilterId + ']: No match.');
-            } else {
+            // Loop thru our new array arrayFilterIds and fill result array
+            for (let k = 0; k < arrayFilterIds.length; k++) {
 
-                if (SCRIPT_DEBUG) log (DEBUG_IGNORE_STR + 'Filter [' + lpFilterId + ']: Match! New Log Line length: (' + lpNewLogLine.length + ')');
+                // some variables
+                let lpFilterId = arrayFilterIds[k]; // Filter ID from LOG_FILTER, like 'error', 'info', 'custom', etc.
+                let lpNewLogLine = lpElement[lpFilterId]; // Current log line of provided array element of 'error', 'info', 'custom' etc.
 
-                // Append new log line to result array
-                if (isLikeEmpty(resultArr[lpFilterId])) {
-                    resultArr[lpFilterId] = lpNewLogLine; 
+                if (isLikeEmpty(lpNewLogLine)) {
+                    // No log content for the given filter id.
+                    if (SCRIPT_DEBUG) log (DEBUG_IGNORE_STR + 'Filter  [' + lpFilterId + ']: No match.');
                 } else {
-                    resultArr[lpFilterId] = lpNewLogLine + resultArr[lpFilterId]; // "\n" not needed, always added above
+
+                    if (SCRIPT_DEBUG) log (DEBUG_IGNORE_STR + 'Filter [' + lpFilterId + ']: Match! New Log Line length: (' + lpNewLogLine.length + ')');
+
+                    // Append new log line to result array
+                    if (isLikeEmpty(resultArr[lpFilterId])) {
+                        resultArr[lpFilterId] = lpNewLogLine; 
+                    } else {
+                        resultArr[lpFilterId] = lpNewLogLine + resultArr[lpFilterId]; // "\n" not needed, always added above
+                    }
                 }
             }
         }
+
     }
+
+
 
     /*****************
      * [3] We merge with the current state.
      *****************/
     for (let k = 0; k < arrayFilterIds.length; k++) {
         let lpFilterId = arrayFilterIds[k]; // Filter ID from LOG_FILTER, like 'error', 'info', 'custom', etc.
+
         let lpStatePath1stPart = FINAL_STATE_PATH + '.log' + cleanseStatePath(lpFilterId); // Get Path to state
         let lpNewFinalLog = resultArr[lpFilterId];
 
-        if (! isLikeEmpty(lpNewFinalLog) )  {
+        if ( justUpdateJson || (! isLikeEmpty(lpNewFinalLog)) )  {
 
             // Get state value
 			let strCurrentStateLog = getState(lpStatePath1stPart + '.log').val; // Get state contents of loop item
             
             // Add state log lines to our final log
-            if (! isLikeEmpty(strCurrentStateLog)) {
-                lpNewFinalLog = lpNewFinalLog + strCurrentStateLog; // "\n" not needed, always added above
-            }            
+            if ( !isLikeEmpty(strCurrentStateLog)) {
+                if (! justUpdateJson) {
+                    lpNewFinalLog = lpNewFinalLog + strCurrentStateLog; // "\n" not needed, always added above
+                } else {
+                    lpNewFinalLog = strCurrentStateLog;
+                }
+            }
 
             // Convert to array for easier handling
             let lpNewFinalLogArray = lpNewFinalLog.split(/\r?\n/);
@@ -763,10 +816,11 @@ function processLogArrayAndSetStates(arrayLogInput) {
             ///////////////////////////////
             // -1- Full Log, String, separated by "\n"
             ///////////////////////////////
-            let strResult = lpNewFinalLogArray.join("\n");
-            if (SCRIPT_DEBUG) log (DEBUG_IGNORE_STR + 'New length to be set into state: (' + strResult.length + '), state: [' + lpStatePath1stPart + '.log' + ']');
-
-            setState(lpStatePath1stPart + '.log', strResult);
+            if (! justUpdateJson) {
+                let strFullLog = lpNewFinalLogArray.join("\n");
+                if (SCRIPT_DEBUG) log (DEBUG_IGNORE_STR + 'New length to be set into state: (' + strFullLog.length + '), state: [' + lpStatePath1stPart + '.log' + ']');
+                setState(lpStatePath1stPart + '.log', strFullLog);
+            }
 
             ///////////////////////////////
             // -2- JSON, with elements date and msg
@@ -969,23 +1023,60 @@ function getAllFilterIds() {
 
 
 /**
- * Reformats a log date string accordingly
- * @param {string}    strDate   The date to convert
- * @param {string}    format    e.g. 'yyyy-mm-dd HH:MM:SS'. Both upper case and lower case letters are allowed.
+ * Reformats a log date string accordingly.
+ * @param {string}    strDate   The date to convert, e.g. 2018-07-22 11:47:53.019
+ * @param {string}    format    Like 'yyyy-mm-dd HH:MM:SS'. Both upper case and lower case letters are allowed.
+ *                              If date is within hash (#), so like '#yyyy-mm-dd# HH:MM:SS', it will be replaced
+ *                              with "Heute"/"Gestern" if date is today/yesterday.
  * @return {string}             Returns the resulting date string
  */
 function formatLogDateStr(strDate, format) {
 
-    let strResult = format.toLowerCase();
-    strResult = strResult.replace('yyyy', strDate.substr(0,4));
-    strResult = strResult.replace('yy', strDate.substr(2,2));
-    strResult = strResult.replace('mm', strDate.substr(5,2));
-    strResult = strResult.replace('dd', strDate.substr(8,2));
+    const TXT_TODAY_FC = ( typeof TXT_TODAY !== 'undefined' ) ? TXT_TODAY : 'Heute';                    // Version 4.9: kann man später rauswerfen. Ist nur da falls User von früherer Version updaten und diese Konfig nicht haben.
+    const TXT_YESTERDAY_FC = ( typeof TXT_YESTERDAY !== 'undefined' ) ? TXT_YESTERDAY : 'Gestern';      // Version 4.9: kann man später rauswerfen. Ist nur da falls User von früherer Version updaten und diese Konfig nicht haben.
+
+    let strResult = format;
+
+    // 1. Replace today's date and yesterday's date with TXT_TODAY_FC / TXT_YESTERDAY_FC
+    let hashkMatch = strResult.match(/#(.*)#/);
+    if (hashkMatch != null) {
+        let todayYesterdayTxt = todayYesterday(new Date(strDate));
+        if(todayYesterdayTxt != '') {
+            // We have either today or yesterday, so set according txt
+            strResult = strResult.replace('#'+hashkMatch[1]+'#', todayYesterdayTxt);
+        } else {
+            // Neither today nor yesterday, so remove all ##
+            strResult = strResult.replace(/#/g, '');
+        }        
+    }
+
+    // 2. Replace all the rest
+    strResult = strResult.replace('YYYY', strDate.substr(0,4));
+    strResult = strResult.replace('YY', strDate.substr(2,2));
+    strResult = strResult.replace('MM', strDate.substr(5,2));
+    strResult = strResult.replace('DD', strDate.substr(8,2));
     strResult = strResult.replace('hh', strDate.substr(11,2));
     strResult = strResult.replace('mm', strDate.substr(14,2));
     strResult = strResult.replace('ss', strDate.substr(17,2));
 
     return strResult;
+
+    /**
+     * @param {object} dateGiven   Date object, created with new Date()
+     * @return                     'Heute', if today, 'Gestern' if yesterday, empty string if neither today nor yesterday
+     */
+    function todayYesterday(dateGiven) {
+        const today = new Date();
+        const yesterday = new Date(); 
+        yesterday.setDate(today.getDate() - 1)
+        if (dateGiven.toLocaleDateString() == today.toLocaleDateString()) {
+            return TXT_TODAY_FC;
+        } else if (dateGiven.toLocaleDateString() == yesterday.toLocaleDateString()) {
+            return TXT_YESTERDAY_FC;
+        } else {
+            return '';
+        }
+    }
 
 }
 
@@ -1290,7 +1381,7 @@ function buildNeededStates() {
     finalStatesForceFalse.push([FINAL_STATE_PATH + '.All.clearAllJSON',   {'name':'Clear ALL JSON logs', 'type':'boolean', 'read':false, 'write':true, 'role':'button', 'def': false }]);
 
     // Zeit letztes Script-Update (Schedule)
-    finalStatesForceFalse.push([FINAL_STATE_PATH + '.All.lastTimeUpdated',   {'name':'Date/Time of last update', 'type':'number', 'read':true, 'write':false, 'role':'value.time'}]);
+    finalStatesForceFalse.push([FINAL_STATE_PATH + '.All.lastTimeUpdated', {'name':'Date/Time of last update', 'type':'number', 'read':true, 'write':false, 'role':'value.time'}]);
 
     // Done.
     return [finalStatesForceFalse, finalStatesForceTrue];
