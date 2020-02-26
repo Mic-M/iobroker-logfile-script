@@ -4,9 +4,9 @@
 
 - [1. Sinn und Zweck](#1-sinn-und-zweck)
 - [2. Installation und Einrichtung](#2-installation-und-einrichtung)
-  * [2.1 Wichtig](#21-wichtig)
+  * [2.1 Wichtig / Voraussetzungen](#21-wichtig---voraussetzungen)
   * [2.2 Script in ioBroker hinzufügen](#22-script-in-iobroker-hinzuf-gen)
-  * [2.3 Script einstellen](#23-script-einstellen)
+  * [2.3 Optionen im Script anpassen](#23-optionen-im-script-anpassen)
   * [2.4 Script aktivieren](#24-script-aktivieren)
 - [3. Log-Ausgaben im VIS darstellen](#3-log-ausgaben-im-vis-darstellen)
 - [4. Auf Log-Ereignisse reagieren](#4-auf-log-ereignisse-reagieren)
