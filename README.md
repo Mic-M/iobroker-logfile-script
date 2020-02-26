@@ -32,10 +32,12 @@ Es stehen auch JSON-Datenpunkte zur Verfügung, mit diesen kann im vis eine Tabe
 
 ## 2. Installation und Einrichtung
 
-### 2.1 Wichtig
+### 2.1 Wichtig / Voraussetzungen
 
-1. In der Instanz des JavaScript-Adapters die Option `Erlaube das Kommando "setObject"` aktivieren. Dies ist notwendig, damit die Datenpunkte unterhalb von `0_userdata.0` angelegt werden mittels Script [github.com/Mic-M/iobroker.createUserStates](https://github.com/Mic-M/iobroker.createUserStates). Wer das nicht möchte: bitte Script-Version 3.1 verwenden.
-2. Dieses Script setzt den [JavaScript-Adapter](https://github.com/iobroker/ioBroker.javascript/blob/master/README.md) in der Version 4.3.0 oder höher voraus. Wer eine ältere Version verwendet, muss das Script in der [Version 2.0.2](https://github.com/Mic-M/iobroker.logfile-script/tree/9b0981cd45dc54ebe79c9fefc7317f3e29b0bae9) verwenden.
+1. In der Instanz des JavaScript-Adapters die Option `Erlaube das Kommando "setObject"` aktivieren. Dies ist notwendig, damit die Datenpunkte unterhalb von `0_userdata.0` angelegt werden mittels Script [github.com/Mic-M/iobroker.createUserStates](https://github.com/Mic-M/iobroker.createUserStates). Wer das nicht möchte: 
+
+2. Falls Datenpunkte unterhalb `0_userdata.0` (und nicht unterhalb von `javascript.0`) angelegt werden sollen: In der Instanz des JavaScript-Adapters die Option `Erlaube das Kommando "setObject"` aktivieren. Siehe auch: https://github.com/Mic-M/iobroker.createUserStates
+
 
 ### 2.2 Script in ioBroker hinzufügen
 
@@ -45,7 +47,9 @@ Es stehen auch JSON-Datenpunkte zur Verfügung, mit diesen kann im vis eine Tabe
 4. Mit dem "+"-Menüpunkt ein neues Script hinzufügen, dann "Javascript" auswählen, und einen Namen vergeben (z.B. "Log-Script") und speichern.
 5. Dieses neue Script öffnen (ist jetzt natürlich noch leer), den zuvor kopierten Code mit Strg+v einfügen und Speichern.
 
-### 2.3 Script einstellen
+**Wichtig:** Das Script nicht unterhalb des Ordners "Global" erstellen. Das ist unnötig und kostet Performance. Siehe auch: [global-functions](https://github.com/ioBroker/ioBroker.javascript/blob/master/docs/en/javascript.md#)
+
+### 2.3 Optionen im Script anpassen
 
 Das neue Script nun öffnen und gemäß den Angaben im Script bei Bedarf entsprechend einrichten. Speichern nicht vergessen.
 Es funktioniert auch so ohne Änderungen und es werden schon mal Datenpunkte angelegt.
@@ -57,11 +61,18 @@ Das Script nun aktivieren. Damit werden nach wenigen Sekunden alle Datenpunkte a
 
 ## 3. Log-Ausgaben im VIS darstellen
 
-Anleitung folgt bald.
+Hierzu habe ich ein Beispiel-Projekt erstellt: **[VIS-Project-Log-Script.zip](https://github.com/Mic-M/iobroker.logfile-script/blob/master/VIS-Project-Log-Script.zip)**
+Diese zip-Datei herunterladen, und in VIS im Menü `Setup > Projekt-Export/Import > Import` aufrufen, um dort das Projekt zu importieren.
+
+**Voraussetzungen**
+1. Die Widgets [ioBroker Material Design Widgets](https://github.com/Scrounger/ioBroker.vis-materialdesign) werden benötigt
+2. Falls im Script in den Optionen unter `LOG_STATE_PATH = '0_userdata.0.Log-Script'` ein anderer Pfad eingestellt wurde, dann am besten in der zip die Datei `vis-views.json` in einem Editor öffnen und über Suchen/Ersetzen euren Pfad entsprechend setzen. Danach speichern und sicherstellen, dass die zip-Datei aktualisiert wurde.
+
 
 ## 4. Auf Log-Ereignisse reagieren
 
-Anleitung folgt bald.
+Um sich etwa bei einer bestimmten Log-Meldung eine Telegram-Nachricht zu senden, gibt es die [ioBroker-Funktion onLog()](https://github.com/ioBroker/ioBroker.javascript/blob/master/docs/en/javascript.md#onlog).
+Alternativ kann man per JavaScript oder Blockly die entsprechenden Filter-Datenpunkte des Scripts (z.B. `0_userdata.0.Log-Script.logError.log` überwachen und dann bei einer entsprechenden Log-Meldung über dieses erzeugte JavaScript / Blockly agieren.
 
 ## 5. Weiteres
 
