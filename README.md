@@ -64,6 +64,7 @@ Das Script nun aktivieren. Damit werden nach wenigen Sekunden alle Datenpunkte a
 
 Hierzu habe ich ein Beispiel-Projekt erstellt: **[VIS-Project-Log-Script.zip](https://github.com/Mic-M/iobroker.logfile-script/blob/master/VIS-Project-Log-Script.zip)**
 Diese zip-Datei herunterladen, und in VIS im Menü `Setup > Projekt-Export/Import > Import` aufrufen, um dort das Projekt zu importieren.
+Siehe auch [im ioBroker-Forum](https://forum.iobroker.net/post/384730).
 
 **Voraussetzungen**
 1. Die Widgets [ioBroker Material Design Widgets](https://github.com/Scrounger/ioBroker.vis-materialdesign) werden benötigt
