@@ -23,6 +23,7 @@
  * =====================================================================================
  * -----------------------------------------------------------------------------------------------------------------------
  * Change Log:
+ *  4.10     Mic + JSON: add support for individual items in column provided through log. See 
  *  4.9      Mic + Add "Heute"/"Gestern" (today/yesterday) option for dates in JSON output instead of actual date
  *               - Fix: jsonDateFormat: correction of month/minute. Month/Day/Year (mm/dd/yy/yyyy) now require lower case 
  *                 letters, Hour/Minute/Second (HH/MM/SS) upper case letters to differenciate month (mm) vs. minute (MM)
@@ -313,7 +314,7 @@ const LOG_FILTER = [
     id:             'info',
     filter_all:     [' - info: '], // nur Logeinträge mit Level 'info'
     filter_any:     ['', ''],
-    blacklist:      ['', ''],
+    blacklist:      [/##\{\s?\".*\"\s?\}##/, ''],
     clean:          [/script\.js\.[^:]*: /, ''],
     merge:          true,
     sortDescending: true,
@@ -854,20 +855,57 @@ function processLogArrayAndSetStates(arrayLogInput, updateJsonOnly) {
                         }
                     }
 
+                    /**
+                     * Support individual items in column provided through log
+                     * Syntax: "Das ist ein Log ##{"msg":"Individuell", "source":"andere Quelle"}##"
+                     */
+                    // Check if we actually have a hit
+                    let individualRegexArr = strLogMsg.match(/##(\{\s?\".*\"\s?\})##/);
+                    let individualRegexObjRes;
+                    if (individualRegexArr != null) {
+                        if(individualRegexArr[1] != undefined) {
+                            individualRegexObjRes = JSON.parse(individualRegexArr[1]);
+                        } else {
+                            individualRegexObjRes = null;
+                        }
+                    } else {
+                        individualRegexObjRes = null;
+                    }
+
+
+
                     for (let lpCol of LOG_FILTER[k].jsonColumns) {
+                        
                         switch (lpCol) {
                             case 'date' :
-                                objectJSONentry.date = strCSS1 + formatLogDateStr(arrSplitLogLine.datetime, LOG_FILTER[k].jsonDateFormat) + strCSS2;
+                                let caseDate = formatLogDateStr(arrSplitLogLine.datetime, LOG_FILTER[k].jsonDateFormat);
+                                if( (individualRegexObjRes != null) && (individualRegexObjRes['date'] != undefined) ) {
+                                    caseDate = individualRegexObjRes['date'];
+                                }
+                                objectJSONentry.date = strCSS1 + caseDate + strCSS2;
                                 break;
                             case 'level' :
-                                objectJSONentry.level = strCSS1_level + arrSplitLogLine.level + strCSS2_level;
+                                let caseLevel = arrSplitLogLine.level;
+                                if( (individualRegexObjRes != null) && (individualRegexObjRes['level'] != undefined) ) {
+                                    caseLevel = individualRegexObjRes['level'];
+                                }
+                                objectJSONentry.level = strCSS1_level + caseLevel + strCSS2_level;
                                 break;
                             case 'source' :
-                                objectJSONentry.source = strCSS1 + arrSplitLogLine.source + strCSS2;
+                                let caseSource = arrSplitLogLine.source;
+                                if( (individualRegexObjRes != null) && (individualRegexObjRes['source'] != undefined) ) {
+                                    caseSource = individualRegexObjRes['source'];
+                                }
+                                objectJSONentry.source = strCSS1 + caseSource + strCSS2;
                                 break;
                             case 'msg' :
-                                objectJSONentry.msg = strCSS1 + strLogMsg + strCSS2;
+                                let caseMsg = strLogMsg;
+                                if( (individualRegexObjRes != null) && (individualRegexObjRes['msg'] != undefined) ) {
+                                    caseMsg = individualRegexObjRes['msg'];
+                                }
+                                objectJSONentry.msg = strCSS1 + caseMsg + strCSS2;
                                 break;
+
                             default:
                                 //nothing;
                         }
