@@ -19,7 +19,7 @@
     filter_all:     ['[Alexa-Log-Script]', ''],
     filter_any:     [' - info: '],
     blacklist:      ['', '', ''],
-    clean:          [/script\.js\.[^:]*: [Alexa-Log-Script]/, '', ''],
+    clean:          [/script\.js\.[^:]*: \[Alexa-Log-Script]/, '', ''],
     merge:          false,
     sortDescending: true,
     jsonDateFormat: '#DD.MM.# hh:mm',
