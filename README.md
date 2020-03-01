@@ -4,13 +4,14 @@
 
 - [1. Sinn und Zweck](#1-sinn-und-zweck)
 - [2. Installation und Einrichtung](#2-installation-und-einrichtung)
-  * [2.1 Wichtig / Voraussetzungen](#21-wichtig---voraussetzungen)
-  * [2.2 Script in ioBroker hinzufügen](#22-script-in-iobroker-hinzufügen)
+  * [2.1 Wichtig - Voraussetzungen](#21-wichtig---voraussetzungen)
+  * [2.2 Script in ioBroker hinzufügen](#22-script-in-iobroker-hinzuf-gen)
   * [2.3 Optionen im Script anpassen](#23-optionen-im-script-anpassen)
   * [2.4 Script aktivieren](#24-script-aktivieren)
 - [3. Log-Ausgaben im VIS darstellen](#3-log-ausgaben-im-vis-darstellen)
 - [4. Auf Log-Ereignisse reagieren](#4-auf-log-ereignisse-reagieren)
-- [5. Weiteres](#5-weiteres)
+- [5. Neues Feature ab 4.10: Per Log JSON-Spalteninhalte ändern](#5-neues-feature-ab-410--per-log-json-spalteninhalte--ndern)
+- [6. Weiteres](#6-weiteres)
   * [Support](#support)
   * [Changelog](#changelog)
   * [Lizenz](#lizenz)
@@ -74,7 +75,28 @@ Diese zip-Datei herunterladen, und in VIS im Menü `Setup > Projekt-Export/Impor
 Um sich etwa bei einer bestimmten Log-Meldung eine Telegram-Nachricht zu senden, gibt es die [ioBroker-Funktion onLog()](https://github.com/ioBroker/ioBroker.javascript/blob/master/docs/en/javascript.md#onlog).
 Alternativ kann man per JavaScript oder Blockly die entsprechenden Filter-Datenpunkte des Scripts (z.B. `0_userdata.0.Log-Script.logError.log` überwachen und dann bei einer entsprechenden Log-Meldung über dieses erzeugte JavaScript / Blockly agieren.
 
-## 5. Weiteres
+## 5. Neues Feature ab 4.10: Per Log JSON-Spalteninhalte ändern
+Ab Script-Version 4.10 gibt es die Möglichkeit, über JavaScript, Blockly, etc. Logs abzusetzen und dabei zu beeinflussen, welcher Inhalt in die Spalten 'date','level','source','msg' gesetzt wird.
+
+**Beispiel:**
+Folgender Befehl wird in einem JavaScript ausgeführt:
+
+`log('[Alexa-Log-Script] ##{"msg":"' + 'Befehl [Musik an].' + '", "source":"' + 'Alexa Flur' + '"}##');`
+
+Damit wird nun der Teil `##{"msg":"' + 'Befehl [Musik an].' + '", "source":"' + 'Alexa Flur' + '"}##` genommen, als Log-Text 'Befehl [Musik an].' (anstatt der Logzeile) angezeigt, und als Quelle wird 'Alexa Flur' (anstatt javascript.0) angezeigt.
+
+**Syntax:**
+In die Logzeile folgendes aufnehmen: `##{"date":"", "level":"", "source":"", "msg":""}##`
+Dabei können einzelne Werte entfernt werden, also z.B. nur um den Logtext (msg) zu ändern, nimmt man `##{"msg":"hier der Text."}##`
+
+**Use Cases**
+Da das Log-Script umfangreiche Filter bietet, von denen beliebig viele angelegt werden können und dann in Datenpunkten verfügbar sind, können mit dieser Funktion einfach per [log()](https://github.com/ioBroker/ioBroker.javascript/blob/master/docs/en/javascript.md#log---gives-out-the-message-into-log) entsprechend Tabellen gefüllt werden.
+
+Beispiele:
+(folgt)
+
+
+## 6. Weiteres
 
 ### Support
 Support erhaltet ihr hier im ioBroker Forum: [Log-Datei aufbereiten für VIS - JavaScript](https://forum.iobroker.net/topic/13971/vorlage-log-datei-aufbereiten-f%C3%BCr-vis-javascript).
