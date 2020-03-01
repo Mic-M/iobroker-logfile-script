@@ -93,7 +93,7 @@ Dabei können einzelne Werte entfernt werden, also z.B. nur um den Logtext (msg)
 Da das Log-Script umfangreiche Filter bietet, von denen beliebig viele angelegt werden können und dann in Datenpunkten verfügbar sind, können mit dieser Funktion einfach per [log()](https://github.com/ioBroker/ioBroker.javascript/blob/master/docs/en/javascript.md#log---gives-out-the-message-into-log) entsprechend Tabellen gefüllt werden.
 
 Beispiele:
-(folgt)
+Siehe [hier im Forum](https://forum.iobroker.net/post/386960).
 
 
 ## 6. Weiteres
