@@ -10,7 +10,7 @@
   * [2.4 Script aktivieren](#24-script-aktivieren)
 - [3. Log-Ausgaben im VIS darstellen](#3-log-ausgaben-im-vis-darstellen)
 - [4. Auf Log-Ereignisse reagieren](#4-auf-log-ereignisse-reagieren)
-- [5. Neues Feature ab 4.10: Per Log JSON-Spalteninhalte ändern](#5-neues-feature-ab-410--per-log-json-spalteninhalte--ndern)
+- [5. Neues Feature ab 4.10: Per Log JSON-Spalteninhalte ändern](#5-neues-feature-ab-410-per-log-json-spalteninhalte-%C3%A4ndern)
 - [6. Weiteres](#6-weiteres)
   * [Support](#support)
   * [Changelog](#changelog)
