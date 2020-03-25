@@ -23,6 +23,7 @@
  * =====================================================================================
  * -----------------------------------------------------------------------------------------------------------------------
  * Change Log:
+ *  4.10.1   Mic - Fix: eliminate undefined strings in JSON if JSON_APPLY_CSS = false
  *  4.10     Mic + JSON: add support for individual items in column provided through log. See 
  *  4.9      Mic + Add "Heute"/"Gestern" (today/yesterday) option for dates in JSON output instead of actual date
  *               - Fix: jsonDateFormat: correction of month/minute. Month/Day/Year (mm/dd/yy/yyyy) now require lower case 
@@ -842,8 +843,8 @@ function processLogArrayAndSetStates(arrayLogInput, updateJsonOnly) {
                     let objectJSONentry = {}; // object (https://stackoverflow.com/a/13488998)
                     if (isLikeEmpty(LOG_FILTER[k].jsonColumns)) log('Columns not specified in "jsonColumns".', 'warn');
                     // Prepare CSS
-                    let strCSS1, strCSS2;
-                    let strCSS1_level, strCSS2_level;
+                    let strCSS1 = '', strCSS2 = '';
+                    let strCSS1_level = '', strCSS2_level = '';
                     if (JSON_APPLY_CSS) {
                         strCSS1 = "<span class='log-" + arrSplitLogLine.level + "'>";
                         strCSS2 = '</span>';
