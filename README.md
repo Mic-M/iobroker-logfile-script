@@ -1,5 +1,12 @@
 # ioBroker-Log-Script
 
+# Wichtiger Hinweis (10.04.2020)
+
+Ich habe das Script in einen Adapter umgewandelt: **[Adapter Log Parser](https://github.com/Mic-M/ioBroker.logparser)**. Daher wird die Entwicklung dieses Scripts nicht mehr fortgeführt!
+
+---
+
+
 ## Inhalt
 
 - [1. Sinn und Zweck](#1-sinn-und-zweck)
